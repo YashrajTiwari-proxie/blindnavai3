@@ -28,8 +28,6 @@ class CameraScreenState extends State<CameraScreen> {
 
   Future<void> _delayedInitializeCamera() async {
     await _cameraService.startCamera();
-
-    // Wait briefly to ensure camera preview is attached to the window
     await Future.delayed(const Duration(milliseconds: 600));
 
     setState(() {
@@ -65,8 +63,9 @@ class CameraScreenState extends State<CameraScreen> {
 
     debugPrint("📤 Final result: $result");
 
-    final String spokenResult = result ?? "Something went wrong.";
-    await TtsService().speak(spokenResult);
+    if (result != null && !result.toLowerCase().startsWith("error")) {
+      await TtsService().speak(result);
+    }
 
     setState(() {
       spokenText = result ?? "Something went wrong.";
@@ -83,7 +82,6 @@ class CameraScreenState extends State<CameraScreen> {
   @override
   Widget build(BuildContext context) {
     if (!_isCameraInitialized) {
-      // Loading screen
       return const Scaffold(
         backgroundColor: Colors.black,
         body: Center(
@@ -170,7 +168,7 @@ class CameraScreenState extends State<CameraScreen> {
                               style: ElevatedButton.styleFrom(
                                 backgroundColor:
                                     isProcessing
-                                        ? Colors.grey.shade700
+                                        ? Colors.purple
                                         : Colors.deepPurpleAccent,
                                 foregroundColor: Colors.white,
                                 padding: const EdgeInsets.symmetric(
