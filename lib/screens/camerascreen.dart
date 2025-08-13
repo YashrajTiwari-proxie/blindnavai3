@@ -37,16 +37,18 @@ class CameraScreenState extends State<CameraScreen> {
     });
   }
 
+  // Image compression
   Future<Uint8List?> _compressImage(Uint8List input) async {
     return await FlutterImageCompress.compressWithList(
       input,
-      minWidth: 1024,
-      minHeight: 1024,
+      minWidth: 900,
+      minHeight: 900,
       quality: 70,
       format: CompressFormat.jpeg,
     );
   }
 
+  // Image Procession and sending to gemini
   Future<void> _processScene() async {
     setState(() {
       spokenText = "Capturing image...";
@@ -79,6 +81,7 @@ class CameraScreenState extends State<CameraScreen> {
       "📉 Compressed image size: ${compressedImage.lengthInBytes} bytes",
     );
 
+    //Listening to prompt
     setState(() => spokenText = "Listening for prompt...");
     final String prompt = await SpeechService.startListening();
     debugPrint("🎙️ Recognized prompt: $prompt");
