@@ -7,6 +7,8 @@ import 'package:blindnavaiv3/services/ttsservice.dart';
 import 'package:flutter/material.dart';
 import 'dart:typed_data';
 
+import 'package:flutter_image_compress/flutter_image_compress.dart';
+
 class CameraScreen extends StatefulWidget {
   const CameraScreen({super.key});
 
@@ -35,6 +37,16 @@ class CameraScreenState extends State<CameraScreen> {
     });
   }
 
+  Future<Uint8List?> _compressImage(Uint8List input) async {
+    return await FlutterImageCompress.compressWithList(
+      input,
+      minWidth: 1024,
+      minHeight: 1024,
+      quality: 70,
+      format: CompressFormat.jpeg,
+    );
+  }
+
   Future<void> _processScene() async {
     setState(() {
       spokenText = "Capturing image...";
@@ -51,13 +63,29 @@ class CameraScreenState extends State<CameraScreen> {
       debugPrint("❌ Image capture failed or empty.");
       return;
     }
+
+    setState(() => spokenText = "Compressing image...");
+    final Uint8List? compressedImage = await _compressImage(imageBytes);
+
+    if (compressedImage == null) {
+      setState(() {
+        spokenText = "Image compression failed";
+        isProcessing = false;
+      });
+      return;
+    }
+
+    debugPrint(
+      "📉 Compressed image size: ${compressedImage.lengthInBytes} bytes",
+    );
+
     setState(() => spokenText = "Listening for prompt...");
     final String prompt = await SpeechService.startListening();
     debugPrint("🎙️ Recognized prompt: $prompt");
 
     setState(() => spokenText = "Processing...");
     final String? result = await GeminiService.processImageWithPrompt(
-      imageBytes: imageBytes,
+      imageBytes: compressedImage,
       prompt: prompt,
     );
 

@@ -24,7 +24,7 @@ class GeminiService {
             "parts": [
               {
                 "text":
-                    "$prompt. Respond in one short sentence to help a blind person navigate.",
+                    "$prompt. Respond in one short sentence to help a blind person navigate. Do not respond in markdown because this is being spoken in a tts make it more like human talk",
               },
 
               {
