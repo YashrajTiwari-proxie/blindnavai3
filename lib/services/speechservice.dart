@@ -21,4 +21,12 @@ class SpeechService {
       debugPrint("Stop error: $e");
     }
   }
+
+  static Future<void> setLanguage(String langTag) async {
+    try {
+      await _channel.invokeMethod('setLanguage', {"langTag": langTag});
+    } catch (e) {
+      debugPrint("Set language error: $e");
+    }
+  }
 }

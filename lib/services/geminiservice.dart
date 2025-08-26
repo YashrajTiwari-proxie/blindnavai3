@@ -24,7 +24,7 @@ class GeminiService {
             "parts": [
               {
                 "text":
-                    "$prompt. Respond in one short sentence to help a blind person navigate. Do not respond in markdown because this is being spoken in a tts make it more like human talk",
+                    "$prompt. Describe the scene in the image with one short, natural sentence that sounds like human speech, to guide a blind person in navigation; avoid markdown or symbols, keep it simple and direct, and always reply german.",
               },
 
               {

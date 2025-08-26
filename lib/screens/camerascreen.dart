@@ -5,7 +5,7 @@ import 'package:blindnavaiv3/services/geminiservice.dart';
 import 'package:blindnavaiv3/services/speechservice.dart';
 import 'package:blindnavaiv3/services/ttsservice.dart';
 import 'package:flutter/material.dart';
-import 'dart:typed_data';
+import 'package:flutter/services.dart';
 
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 
@@ -18,6 +18,7 @@ class CameraScreen extends StatefulWidget {
 
 class CameraScreenState extends State<CameraScreen> {
   final CameraServiceNative _cameraService = CameraServiceNative();
+  final MethodChannel _screenChannel = const MethodChannel('screen_state');
   bool _isCameraInitialized = false;
   bool isProcessing = false;
   String spokenText = "Press the button to begin.";
@@ -26,6 +27,7 @@ class CameraScreenState extends State<CameraScreen> {
   void initState() {
     super.initState();
     _delayedInitializeCamera();
+    _setupScreenKeyListener();
   }
 
   Future<void> _delayedInitializeCamera() async {
@@ -34,6 +36,28 @@ class CameraScreenState extends State<CameraScreen> {
 
     setState(() {
       _isCameraInitialized = true;
+    });
+  }
+
+  void _setupScreenKeyListener() {
+    _screenChannel.setMethodCallHandler((call) async {
+      switch (call.method) {
+        case 'screenOff':
+          debugPrint("Screen turned off! Stopping TTS...");
+          await TtsService().stop(); // <-- stop any ongoing TTS
+          break;
+        case 'keyPressed':
+          final int keyCode = call.arguments;
+          debugPrint("Key pressed: $keyCode");
+          // Trigger image capture on any key (or check specific keyCode)
+          if (!isProcessing) {
+            _processScene();
+          }
+          break;
+        case 'screenOn':
+          debugPrint("Screen turned on");
+          break;
+      }
     });
   }
 
