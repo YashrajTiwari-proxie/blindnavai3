@@ -100,7 +100,7 @@ class SpeechRecognizerHandler(
             //putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toLanguageTag())
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, "de-DE")  
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-            //putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, false)
+            putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, false)
         }
     }
 

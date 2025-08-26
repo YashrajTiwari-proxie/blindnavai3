@@ -118,12 +118,22 @@ class CameraScreenState extends State<CameraScreen> {
 
     debugPrint("📤 Final result: $result");
 
-    if (result != null && !result.toLowerCase().startsWith("error")) {
+    if (result != null &&
+        !result.toLowerCase().startsWith("error") &&
+        !result.toLowerCase().contains("exception")) {
       await TtsService().speak(result);
+    } else {
+      spokenText = "Error occurred.";
+      await TtsService().speak(spokenText);
     }
 
     setState(() {
-      spokenText = result ?? "Something went wrong.";
+      spokenText =
+          (result != null &&
+                  !result.toLowerCase().startsWith("error") &&
+                  !result.toLowerCase().contains("exception"))
+              ? result
+              : "Error occurred.";
       isProcessing = false;
     });
   }

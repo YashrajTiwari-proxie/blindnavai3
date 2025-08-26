@@ -1,11 +1,12 @@
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 
 class GeminiService {
-  static const String _apiKey = 'AIzaSyB7DwfR6o7XLuaCkLDeAaUZ0_J6ayLtFKM';
-  static const String _endpoint =
+  static final String? _apiKey = dotenv.env['geminiapi'];
+  static final String _endpoint =
       'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$_apiKey';
 
   static Future<String?> processImageWithPrompt({
@@ -24,7 +25,7 @@ class GeminiService {
             "parts": [
               {
                 "text":
-                    "$prompt. Describe the scene in the image with one short, natural sentence that sounds like human speech, to guide a blind person in navigation; avoid markdown or symbols, keep it simple and direct, and always reply german.",
+                    "$prompt Describe the scene in this image in one short, simple sentence, as if guiding a visually impaired person. Avoid repeating the prompt, markdown, or symbols. Respond in German only.",
               },
 
               {
@@ -47,12 +48,49 @@ class GeminiService {
 
       if (response.statusCode == 200) {
         final json = jsonDecode(response.body);
-        final text = json['candidates'][0]['content']['parts'][0]['text'];
-        debugPrint("✅ Gemini Response: $text");
-        return text;
+
+        try {
+          final candidates = json['candidates'];
+          if (candidates != null) {
+            dynamic firstCandidate;
+            if (candidates is List && candidates.isNotEmpty) {
+              firstCandidate = candidates[0];
+            } else if (candidates is Map) {
+              firstCandidate = candidates;
+            }
+
+            final contentList = firstCandidate?['content'];
+            dynamic firstContent;
+            if (contentList is List && contentList.isNotEmpty) {
+              firstContent = contentList[0];
+            } else if (contentList is Map) {
+              firstContent = contentList;
+            }
+
+            final partsList = firstContent?['parts'];
+            dynamic firstPart;
+            if (partsList is List && partsList.isNotEmpty) {
+              firstPart = partsList[0];
+            } else if (partsList is Map) {
+              firstPart = partsList;
+            }
+
+            final text = firstPart?['text'];
+            if (text is String) {
+              debugPrint("✅ Gemini Response: $text");
+              return text;
+            }
+          }
+
+          debugPrint("❌ Gemini response missing expected fields: $json");
+          return "Error";
+        } catch (e) {
+          debugPrint("❗ Parsing exception: $e");
+          return "Error";
+        }
       } else {
         debugPrint("❌ Error Response: ${response.body}");
-        return "Error ${response.statusCode}: ${response.body}";
+        return "Error";
       }
     } catch (e) {
       debugPrint("❗ Exception: $e");
