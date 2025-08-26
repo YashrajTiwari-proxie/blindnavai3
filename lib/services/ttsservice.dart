@@ -21,6 +21,7 @@ class TtsService {
       } else if (Platform.isIOS) {
         await _flutterTts.setSharedInstance(true);
       }
+      await _flutterTts.setLanguage("de-DE");
       _isInitialized = true;
     } catch (e) {
       debugPrint("TTS Init Error: $e");
@@ -31,10 +32,6 @@ class TtsService {
     if (!_isInitialized || text.isEmpty) return;
 
     try {
-      //String selectedLanguageCode =
-      //await PreferencesHelper.getLanguageCode() ?? "en-US";
-
-      //await _flutterTts.setLanguage(selectedLanguageCode);
       await _flutterTts.setPitch(1);
       await _flutterTts.setSpeechRate(0.4);
       await _flutterTts.awaitSpeakCompletion(true);
