@@ -195,6 +195,7 @@ class MainActivity : FlutterActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         ensurePermissions()
+
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {

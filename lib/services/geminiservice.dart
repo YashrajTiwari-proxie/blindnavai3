@@ -25,7 +25,13 @@ class GeminiService {
             "parts": [
               {
                 "text":
-                    "$prompt Describe the scene in this image in one short, simple sentence, as if guiding a visually impaired person. Avoid repeating the prompt, markdown, or symbols. Respond in German only.",
+                    "You are an AI describing images for visually impaired users. Follow these instructions:\n"
+                    "1. Describe the image clearly in 1 short sentences.\n"
+                    "2. Avoid repeating the user prompt.\n"
+                    "3. Do not use markdown, symbols, or extraneous commentary.\n"
+                    "4. Keep language simple, precise, and easy to visualize.\n"
+                    "5. Always answer in German only.\n"
+                    "User prompt: $prompt",
               },
 
               {

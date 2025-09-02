@@ -21,6 +21,7 @@ class TtsService {
       } else if (Platform.isIOS) {
         await _flutterTts.setSharedInstance(true);
       }
+      //await _flutterTts.setLanguage("en-US");
       await _flutterTts.setLanguage("de-DE");
       _isInitialized = true;
     } catch (e) {
