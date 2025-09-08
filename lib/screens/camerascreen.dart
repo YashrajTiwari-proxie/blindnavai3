@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:ui';
 
+import 'package:audioplayers/audioplayers.dart';
 import 'package:blindnavaiv3/services/cameraservicenative.dart';
 import 'package:blindnavaiv3/services/geminiservice.dart';
 import 'package:blindnavaiv3/services/speechservice.dart';
@@ -24,6 +25,7 @@ class CameraScreenState extends State<CameraScreen> {
   final CameraServiceNative _cameraService = CameraServiceNative();
   final MethodChannel _screenChannel = const MethodChannel('screen_state');
   final SupabaseService _supabaseService = SupabaseService();
+  final AudioPlayer _audioPlayer = AudioPlayer();
   bool _isCameraInitialized = false;
   bool isProcessing = false;
   String spokenText = "Press the button to begin.";
@@ -178,6 +180,7 @@ class CameraScreenState extends State<CameraScreen> {
 
       // ✅ Run TTS & save in background
       TtsService().speak(result);
+      await _playReadySound();
       qaHistory.add({"question": prompt, "answer": result});
       if (qaHistory.length > 2) qaHistory.removeAt(0);
 
@@ -198,6 +201,7 @@ class CameraScreenState extends State<CameraScreen> {
           ),
         );
       }
+      Future.delayed(const Duration(milliseconds: 500), _askQuestion);
     } else {
       setState(() => spokenText = "Error occurred.");
       TtsService().speak("Error occurred.");
@@ -222,6 +226,12 @@ class CameraScreenState extends State<CameraScreen> {
 
     final String newPrompt = await SpeechService.startListening();
 
+    if (newPrompt.trim().isEmpty) {
+      setState(() => spokenText = "No more questions. Stopping");
+      isProcessing = false;
+      return;
+    }
+
     final String historyPrompt = qaHistory
         .map((e) => "Question: ${e['question']}\nAnswer: ${e['answer']}")
         .join("\n\n");
@@ -245,6 +255,8 @@ class CameraScreenState extends State<CameraScreen> {
       // ✅ Run TTS in background
       TtsService().speak(result);
 
+      await _playReadySound();
+
       qaHistory.add({"question": newPrompt, "answer": result});
       if (qaHistory.length > 2) qaHistory.removeAt(0);
 
@@ -259,12 +271,21 @@ class CameraScreenState extends State<CameraScreen> {
           ),
         );
       }
+
+      // Trigger _askQuestion
+      Future.delayed(const Duration(milliseconds: 500), _askQuestion);
     } else {
       setState(() => spokenText = "Error occurred.");
       TtsService().speak("Error occurred.");
     }
 
     setState(() => isProcessing = false);
+  }
+
+  Future<void> _playReadySound() async {
+    await _audioPlayer.play(
+      AssetSource("assets/audio/correct-answer-chime-01.wav"),
+    );
   }
 
   @override
@@ -462,165 +483,3 @@ class CameraScreenState extends State<CameraScreen> {
     );
   }
 }
-
-  /*
-  Future<void> _askQuestion() async {
-    if (lastCapturedImage == null) {
-      // If no image, capture first instead of just erroring
-      await _processScene();
-      return;
-    }
-
-    setState(() {
-      spokenText = "Listening for new question...";
-      isProcessing = true;
-    });
-
-    final String newPrompt = await SpeechService.startListening();
-
-    // Build history from last 2 Q&A
-    final String historyPrompt = qaHistory
-        .map((e) => "Question: ${e['question']}\nAnswer: ${e['answer']}")
-        .join("\n\n");
-
-    final String finalPrompt =
-        historyPrompt.isNotEmpty
-            ? "$historyPrompt\n\nNow answer this new question: $newPrompt"
-            : newPrompt;
-
-    setState(() => spokenText = "Processing...");
-
-    final String? result = await GeminiService.processImageWithPrompt(
-      imageBytes: lastCapturedImage!,
-      prompt: finalPrompt,
-    );
-
-    if (result != null &&
-        !result.toLowerCase().startsWith("error") &&
-        !result.toLowerCase().contains("exception")) {
-      await TtsService().speak(result);
-
-      qaHistory.add({"question": newPrompt, "answer": result});
-      if (qaHistory.length > 2) qaHistory.removeAt(0);
-
-      final deviceId = await _getDeviceId(); // your device ID method
-      if (lastImageUrl != null) {
-        await _supabaseService.saveLogJson(
-          deviceId: deviceId,
-          imageUrl: lastImageUrl!,
-          question: newPrompt,
-          answer: result,
-        );
-      } else {
-        debugPrint("❌ No image uploaded yet, skipping Supabase log.");
-      }
-
-      setState(() => spokenText = result);
-    } else {
-      await TtsService().speak("Error occurred.");
-      setState(() => spokenText = "Error occurred.");
-    }
-
-    setState(() => isProcessing = false);
-  }
-  */
-
-    /*
-  // Image Procession and sending to gemini
-  Future<void> _processScene() async {
-    setState(() {
-      spokenText = "Capturing image...";
-      isProcessing = true;
-    });
-
-    qaHistory = [];
-    lastImageUrl = null;
-
-    final Uint8List? imageBytes = await _cameraService.captureImage();
-    debugPrint("📸 Captured image: ${imageBytes?.lengthInBytes ?? 0} bytes");
-    if (imageBytes == null) {
-      setState(() {
-        spokenText = "Failed to capture image.";
-        isProcessing = false;
-      });
-      debugPrint("❌ Image capture failed or empty.");
-      return;
-    }
-
-    setState(() => spokenText = "Compressing image...");
-    final Uint8List? compressedImage = await _compressImage(imageBytes);
-
-    if (compressedImage == null) {
-      setState(() {
-        spokenText = "Image compression failed";
-        isProcessing = false;
-      });
-      return;
-    }
-
-    debugPrint(
-      "📉 Compressed image size: ${compressedImage.lengthInBytes} bytes",
-    );
-
-    lastCapturedImage = compressedImage; // ✅ save image
-
-    // Listening to prompt
-    setState(() => spokenText = "Listening for prompt...");
-    final String prompt = await SpeechService.startListening();
-    debugPrint("🎙️ Recognized prompt: $prompt");
-
-    setState(() => spokenText = "Processing...");
-    final String? result = await GeminiService.processImageWithPrompt(
-      imageBytes: compressedImage,
-      prompt: prompt,
-    );
-
-    debugPrint("📤 Final result: $result");
-
-    if (result != null &&
-        !result.toLowerCase().startsWith("error") &&
-        !result.toLowerCase().contains("exception")) {
-      await TtsService().speak(result);
-
-      // ✅ store first Q&A pair with consistent keys
-      qaHistory.add({"question": prompt, "answer": result});
-      if (qaHistory.length > 2) qaHistory.removeAt(0);
-
-      final deviceId = await _getDeviceId();
-      // After compression
-      lastCapturedImage = compressedImage;
-
-      // ✅ Upload image only once
-      lastImageUrl ??= await _supabaseService.uploadImage(
-        lastCapturedImage!,
-        deviceId,
-      );
-
-      if (lastImageUrl != null) {
-        await _supabaseService.saveLogJson(
-          deviceId: deviceId,
-          imageUrl: lastImageUrl!,
-          question: prompt,
-          answer: result,
-        );
-      } else {
-        debugPrint("❌ Failed to upload image, skipping Supabase log.");
-      }
-
-      setState(() => spokenText = result);
-    } else {
-      spokenText = "Error occurred.";
-      await TtsService().speak(spokenText);
-    }
-
-    setState(() {
-      spokenText =
-          (result != null &&
-                  !result.toLowerCase().startsWith("error") &&
-                  !result.toLowerCase().contains("exception"))
-              ? result
-              : "Error occurred.";
-      isProcessing = false;
-    });
-  }
-  */
