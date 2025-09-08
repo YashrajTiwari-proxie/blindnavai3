@@ -331,13 +331,7 @@ class CameraScreenState extends State<CameraScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          SizedBox(
-                            height: 60,
-                            child: Image.asset(
-                              "assets/BlindNavAi Logo.png",
-                              fit: BoxFit.contain,
-                            ),
-                          ),
+                          Text("IDA AssistanceApp"),
                           const SizedBox(height: 5),
                           Row(
                             children: [
