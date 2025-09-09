@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:ui';
 
-import 'package:audioplayers/audioplayers.dart';
 import 'package:blindnavaiv3/services/cameraservicenative.dart';
 import 'package:blindnavaiv3/services/geminiservice.dart';
 import 'package:blindnavaiv3/services/speechservice.dart';
@@ -13,6 +12,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'package:flutter_image_compress/flutter_image_compress.dart';
+import 'package:just_audio/just_audio.dart';
+import 'package:vibration/vibration.dart';
 
 class CameraScreen extends StatefulWidget {
   const CameraScreen({super.key});
@@ -25,7 +26,7 @@ class CameraScreenState extends State<CameraScreen> {
   final CameraServiceNative _cameraService = CameraServiceNative();
   final MethodChannel _screenChannel = const MethodChannel('screen_state');
   final SupabaseService _supabaseService = SupabaseService();
-  final AudioPlayer _audioPlayer = AudioPlayer();
+  final player = AudioPlayer();
   bool _isCameraInitialized = false;
   bool isProcessing = false;
   String spokenText = "Press the button to begin.";
@@ -40,6 +41,15 @@ class CameraScreenState extends State<CameraScreen> {
     _delayedInitializeCamera();
     _setupScreenKeyListener();
     _initDeviceId();
+    _preloadChime();
+  }
+
+  Future<void> _preloadChime() async {
+    try {
+      await player.setAsset("assets/audio/correct-answer-chime-01.wav");
+    } catch (e) {
+      debugPrint("Error preloading chime: $e");
+    }
   }
 
   Future<void> _initDeviceId() async {
@@ -131,6 +141,7 @@ class CameraScreenState extends State<CameraScreen> {
 
   Future<void> _processScene() async {
     await TtsService().stop();
+    _playReadySound();
     if (_isCameraInitialized == false) return;
 
     setState(() {
@@ -179,8 +190,7 @@ class CameraScreenState extends State<CameraScreen> {
       setState(() => spokenText = result);
 
       // ✅ Run TTS & save in background
-      TtsService().speak(result);
-      await _playReadySound();
+      await TtsService().speak(result);
       qaHistory.add({"question": prompt, "answer": result});
       if (qaHistory.length > 2) qaHistory.removeAt(0);
 
@@ -218,6 +228,7 @@ class CameraScreenState extends State<CameraScreen> {
       await _processScene();
       return;
     }
+    _playReadySound();
 
     setState(() {
       spokenText = "Listening for new question...";
@@ -253,9 +264,7 @@ class CameraScreenState extends State<CameraScreen> {
       setState(() => spokenText = result);
 
       // ✅ Run TTS in background
-      TtsService().speak(result);
-
-      await _playReadySound();
+      await TtsService().speak(result);
 
       qaHistory.add({"question": newPrompt, "answer": result});
       if (qaHistory.length > 2) qaHistory.removeAt(0);
@@ -283,9 +292,19 @@ class CameraScreenState extends State<CameraScreen> {
   }
 
   Future<void> _playReadySound() async {
-    await _audioPlayer.play(
-      AssetSource("assets/audio/correct-answer-chime-01.wav"),
-    );
+    try {
+      final AudioPlayer tempPlayer = AudioPlayer();
+      await tempPlayer.setAsset("assets/audio/correct-answer-chime-01.wav");
+      await tempPlayer.play();
+
+      tempPlayer.playerStateStream.listen((state) {
+        if (state.processingState == ProcessingState.completed) {
+          tempPlayer.dispose();
+        }
+      });
+    } catch (e) {
+      debugPrint("Error playing sound: $e");
+    }
   }
 
   @override
@@ -352,7 +371,14 @@ class CameraScreenState extends State<CameraScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Text("IDA AssistanceApp"),
+                          Text(
+                            "IDA AssistanceApp",
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 24,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
                           const SizedBox(height: 5),
                           Row(
                             children: [
