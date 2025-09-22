@@ -86,7 +86,6 @@ class CameraScreenState extends State<CameraScreen> {
 
   DateTime? _lastKeyPressTime;
 
-  // NEW: centralized stop request that tries to stop TTS and mark cancellation
   Future<void> _requestStop({String text = "Stopped."}) async {
     _cancelRequested = true;
 
@@ -96,22 +95,20 @@ class CameraScreenState extends State<CameraScreen> {
       debugPrint("TTS stop error: $e");
     }
 
-    // Try to stop local audio player if playing
     try {
       await player.stop();
     } catch (e) {
       // ignore
     }
-
-    // Note: If your SpeechService has a stop/cancel method, call it here.
-    // e.g. try { await SpeechService.stopListening(); } catch(e) {}
-    // But don't call methods that don't exist (compile-time errors).
+    // ✅ Play stop chime + long vibration
+    _playReadySound();
+    Vibration.hasVibrator().then((hasVibrator) {
+      if (hasVibrator == true) Vibration.vibrate(duration: 300); // long buzz
+    });
     setState(() {
       isProcessing = false;
       spokenText = text;
     });
-
-    // Keep _cancelRequested true until a new single-click starts a new action.
   }
 
   void _setupScreenKeyListener() {
@@ -180,10 +177,12 @@ class CameraScreenState extends State<CameraScreen> {
   }
 
   Future<void> _processScene() async {
-    // Starting a fresh capture -> clear cancel marker
     _cancelRequested = false;
 
     await TtsService().stop();
+    Vibration.hasVibrator().then((hasVibrator) {
+      if (hasVibrator == true) Vibration.vibrate(duration: 80); // short buzz
+    });
     _playReadySound();
     if (_isCameraInitialized == false) return;
 
@@ -278,6 +277,12 @@ class CameraScreenState extends State<CameraScreen> {
       } else {
         debugPrint("_processScene: skipping TTS due to cancellation");
       }
+
+      // ✅ Chime + short vibration for success
+      _playReadySound();
+      Vibration.hasVibrator().then((hasVibrator) {
+        if (hasVibrator == true) Vibration.vibrate(duration: 100);
+      });
 
       qaHistory.add({"question": prompt, "answer": result});
       if (qaHistory.length > 2) qaHistory.removeAt(0);
