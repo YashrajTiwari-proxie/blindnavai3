@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 import 'dart:ui';
 
 import 'package:blindnavaiv3/services/cameraservicenative.dart';
@@ -27,6 +28,7 @@ class CameraScreenState extends State<CameraScreen> {
   final MethodChannel _screenChannel = const MethodChannel('screen_state');
   final SupabaseService _supabaseService = SupabaseService();
   final player = AudioPlayer();
+  final AudioPlayer _sfxPlayer = AudioPlayer();
   bool _isCameraInitialized = false;
   bool isProcessing = false;
   String spokenText = "Press the button to begin.";
@@ -34,6 +36,8 @@ class CameraScreenState extends State<CameraScreen> {
   String? lastImageUrl;
   List<Map<String, String>> qaHistory = [];
   String deviceId = "unknown device";
+  String readySound = "assets/audio/Gentle_Ding_Clicks_2.wav";
+  String endSound = "assets/audio/Gentle_Ding_Clicks_1.wav";
 
   // NEW: cancellation flag — set when user double-clicks stop
   bool _cancelRequested = false;
@@ -44,14 +48,15 @@ class CameraScreenState extends State<CameraScreen> {
     _delayedInitializeCamera();
     _setupScreenKeyListener();
     _initDeviceId();
-    _preloadChime();
+    _preloadSounds();
   }
 
-  Future<void> _preloadChime() async {
+  Future<void> _preloadSounds() async {
     try {
-      await player.setAsset("assets/audio/correct-answer-chime-01.wav");
+      await _sfxPlayer.setAsset(readySound);
+      await _sfxPlayer.setAsset(endSound);
     } catch (e) {
-      debugPrint("Error preloading chime: $e");
+      debugPrint("Error preloading sounds: $e");
     }
   }
 
@@ -101,10 +106,7 @@ class CameraScreenState extends State<CameraScreen> {
       // ignore
     }
     // ✅ Play stop chime + long vibration
-    _playReadySound();
-    Vibration.hasVibrator().then((hasVibrator) {
-      if (hasVibrator == true) Vibration.vibrate(duration: 300); // long buzz
-    });
+    await _playSound(assetPath: endSound, vibrationDuration: 300);
     setState(() {
       isProcessing = false;
       spokenText = text;
@@ -180,10 +182,6 @@ class CameraScreenState extends State<CameraScreen> {
     _cancelRequested = false;
 
     await TtsService().stop();
-    Vibration.hasVibrator().then((hasVibrator) {
-      if (hasVibrator == true) Vibration.vibrate(duration: 80); // short buzz
-    });
-    _playReadySound();
     if (_isCameraInitialized == false) return;
 
     setState(() {
@@ -217,6 +215,7 @@ class CameraScreenState extends State<CameraScreen> {
 
     setState(() => spokenText = "Compressing image...");
     final Uint8List? compressedImage = await _compressImage(imageBytes);
+    await _playSound(assetPath: readySound);
 
     if (_cancelRequested) {
       debugPrint("_processScene: cancelled after compress");
@@ -239,7 +238,7 @@ class CameraScreenState extends State<CameraScreen> {
 
     // Listen for question
     setState(() => spokenText = "Listening for question...");
-    // IMPORTANT: if your SpeechService has a cancellable listening method, you should call that in _requestStop.
+    Vibration.vibrate(duration: 400, amplitude: 250);
     final String prompt = await SpeechService.startListening();
 
     if (_cancelRequested) {
@@ -291,16 +290,16 @@ class CameraScreenState extends State<CameraScreen> {
 
       // ✅ Run TTS & save in background — skip TTS if cancellation requested
       if (!_cancelRequested) {
-        await TtsService().speak(result);
+        await _speakAndPlay(
+          text: result,
+          soundAsset: endSound,
+          vibrationDuration: 300,
+        );
       } else {
         debugPrint("_processScene: skipping TTS due to cancellation");
       }
 
       // ✅ Chime + short vibration for success
-      _playReadySound();
-      Vibration.hasVibrator().then((hasVibrator) {
-        if (hasVibrator == true) Vibration.vibrate(duration: 100);
-      });
 
       qaHistory.add({"question": prompt, "answer": result});
       if (qaHistory.length > 2) qaHistory.removeAt(0);
@@ -338,13 +337,13 @@ class CameraScreenState extends State<CameraScreen> {
       await _processScene();
       return;
     }
-    _playReadySound();
 
     setState(() {
       spokenText = "Listening for new question...";
       isProcessing = true; // only blocks during gemini analysis
     });
 
+    Vibration.vibrate(duration: 400, amplitude: 250);
     final String newPrompt = await SpeechService.startListening();
 
     if (_cancelRequested) {
@@ -358,6 +357,7 @@ class CameraScreenState extends State<CameraScreen> {
 
     if (newPrompt.trim().isEmpty) {
       setState(() => spokenText = "No more questions. Stopping");
+      _playSound(assetPath: endSound, vibrationDuration: 150);
       isProcessing = false;
       return;
     }
@@ -424,17 +424,56 @@ class CameraScreenState extends State<CameraScreen> {
     setState(() => isProcessing = false);
   }
 
-  Future<void> _playReadySound() async {
+  Future<void> _speakAndPlay({
+    required String text,
+    String? soundAsset,
+    int vibrationDuration = 0,
+  }) async {
     try {
-      final AudioPlayer tempPlayer = AudioPlayer();
-      await tempPlayer.setAsset("assets/audio/correct-answer-chime-01.wav");
-      await tempPlayer.play();
+      await TtsService().stop();
 
-      tempPlayer.playerStateStream.listen((state) {
-        if (state.processingState == ProcessingState.completed) {
-          tempPlayer.dispose();
+      await TtsService().speak(text);
+
+      if (soundAsset != null) {
+        await _playSound(assetPath: soundAsset, vibrationDuration: 200);
+      }
+    } catch (e) {
+      debugPrint("Error in speakAndPlay: $e");
+    }
+  }
+
+  Future<void> _playSound({
+    required String assetPath,
+    int vibrationDuration = 0,
+  }) async {
+    try {
+      // Stop any previous sound
+      await _sfxPlayer.stop();
+      await _sfxPlayer.setAsset(assetPath);
+
+      final completer = Completer<void>();
+      bool isCompleted = false;
+
+      // Listen for completion safely
+      _sfxPlayer.playerStateStream.listen((state) {
+        if (!isCompleted &&
+            state.processingState == ProcessingState.completed) {
+          isCompleted = true;
+          completer.complete();
         }
       });
+
+      await _sfxPlayer.play();
+
+      if (vibrationDuration > 0) {
+        Vibration.hasVibrator().then((hasVibrator) {
+          if (hasVibrator == true) {
+            Vibration.vibrate(duration: vibrationDuration);
+          }
+        });
+      }
+
+      await completer.future;
     } catch (e) {
       debugPrint("Error playing sound: $e");
     }
