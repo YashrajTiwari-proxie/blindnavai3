@@ -35,6 +35,9 @@ class CameraScreenState extends State<CameraScreen> {
   List<Map<String, String>> qaHistory = [];
   String deviceId = "unknown device";
 
+  // NEW: cancellation flag — set when user double-clicks stop
+  bool _cancelRequested = false;
+
   @override
   void initState() {
     super.initState();
@@ -83,6 +86,34 @@ class CameraScreenState extends State<CameraScreen> {
 
   DateTime? _lastKeyPressTime;
 
+  // NEW: centralized stop request that tries to stop TTS and mark cancellation
+  Future<void> _requestStop({String text = "Stopped."}) async {
+    _cancelRequested = true;
+
+    try {
+      await TtsService().stop();
+    } catch (e) {
+      debugPrint("TTS stop error: $e");
+    }
+
+    // Try to stop local audio player if playing
+    try {
+      await player.stop();
+    } catch (e) {
+      // ignore
+    }
+
+    // Note: If your SpeechService has a stop/cancel method, call it here.
+    // e.g. try { await SpeechService.stopListening(); } catch(e) {}
+    // But don't call methods that don't exist (compile-time errors).
+    setState(() {
+      isProcessing = false;
+      spokenText = text;
+    });
+
+    // Keep _cancelRequested true until a new single-click starts a new action.
+  }
+
   void _setupScreenKeyListener() {
     _screenChannel.setMethodCallHandler((call) async {
       switch (call.method) {
@@ -95,26 +126,35 @@ class CameraScreenState extends State<CameraScreen> {
           final int keyCode = call.arguments;
           debugPrint("Key pressed: $keyCode");
 
-          if (isProcessing) return;
-
           final now = DateTime.now();
           if (_lastKeyPressTime != null &&
               now.difference(_lastKeyPressTime!).inMilliseconds < 400) {
             // ✅ Double click detected (within 400ms)
-            debugPrint("🎯 Double click detected on clicker");
-            _askQuestion();
+            debugPrint("🎯 Double click detected on clicker — requesting stop");
+            await _requestStop();
             _lastKeyPressTime = null; // reset
           } else {
-            // ✅ Single click (first press)
+            // ✅ First press — schedule single-click action after 400ms
             _lastKeyPressTime = now;
             Future.delayed(const Duration(milliseconds: 400), () {
-              if (_lastKeyPressTime != null &&
-                  DateTime.now()
-                          .difference(_lastKeyPressTime!)
-                          .inMilliseconds >=
-                      400) {
-                debugPrint("📸 Single click detected on clicker");
-                _processScene();
+              // If lastKeyPressTime was nulled by a double-click, do nothing.
+              if (_lastKeyPressTime == null) return;
+
+              if (DateTime.now()
+                      .difference(_lastKeyPressTime!)
+                      .inMilliseconds >=
+                  400) {
+                // Only start a single-click action if not already processing
+                if (!isProcessing) {
+                  // Clear any previous cancel request (user pressed new single click)
+                  _cancelRequested = false;
+                  debugPrint(
+                    "📸 Single click detected on clicker — starting capture",
+                  );
+                  _processScene();
+                } else {
+                  debugPrint("Single click ignored: already processing");
+                }
                 _lastKeyPressTime = null; // reset
               }
             });
@@ -140,6 +180,9 @@ class CameraScreenState extends State<CameraScreen> {
   }
 
   Future<void> _processScene() async {
+    // Starting a fresh capture -> clear cancel marker
+    _cancelRequested = false;
+
     await TtsService().stop();
     _playReadySound();
     if (_isCameraInitialized == false) return;
@@ -152,7 +195,19 @@ class CameraScreenState extends State<CameraScreen> {
     qaHistory = [];
     lastImageUrl = null;
 
+    // capture image (may be long)
     final Uint8List? imageBytes = await _cameraService.captureImage();
+
+    // If cancellation was requested while the capture was happening, stop now
+    if (_cancelRequested) {
+      debugPrint("_processScene: cancelled after capture");
+      setState(() {
+        isProcessing = false;
+        spokenText = "Stopped.";
+      });
+      return;
+    }
+
     if (imageBytes == null) {
       setState(() {
         spokenText = "Failed to capture image.";
@@ -163,6 +218,15 @@ class CameraScreenState extends State<CameraScreen> {
 
     setState(() => spokenText = "Compressing image...");
     final Uint8List? compressedImage = await _compressImage(imageBytes);
+
+    if (_cancelRequested) {
+      debugPrint("_processScene: cancelled after compress");
+      setState(() {
+        isProcessing = false;
+        spokenText = "Stopped.";
+      });
+      return;
+    }
 
     if (compressedImage == null) {
       setState(() {
@@ -176,7 +240,17 @@ class CameraScreenState extends State<CameraScreen> {
 
     // Listen for question
     setState(() => spokenText = "Listening for question...");
+    // IMPORTANT: if your SpeechService has a cancellable listening method, you should call that in _requestStop.
     final String prompt = await SpeechService.startListening();
+
+    if (_cancelRequested) {
+      debugPrint("_processScene: cancelled after listening");
+      setState(() {
+        isProcessing = false;
+        spokenText = "Stopped.";
+      });
+      return;
+    }
 
     setState(() => spokenText = "Processing...");
     final String? result = await GeminiService.processImageWithPrompt(
@@ -184,23 +258,39 @@ class CameraScreenState extends State<CameraScreen> {
       prompt: prompt,
     );
 
+    if (_cancelRequested) {
+      debugPrint("_processScene: cancelled after gemini");
+      setState(() {
+        isProcessing = false;
+        spokenText = "Stopped.";
+      });
+      return;
+    }
+
     if (result != null &&
         !result.toLowerCase().startsWith("error") &&
         !result.toLowerCase().contains("exception")) {
       setState(() => spokenText = result);
 
-      // ✅ Run TTS & save in background
-      await TtsService().speak(result);
+      // ✅ Run TTS & save in background — skip TTS if cancellation requested
+      if (!_cancelRequested) {
+        await TtsService().speak(result);
+      } else {
+        debugPrint("_processScene: skipping TTS due to cancellation");
+      }
+
       qaHistory.add({"question": prompt, "answer": result});
       if (qaHistory.length > 2) qaHistory.removeAt(0);
 
       final deviceId = await _getDeviceId();
-      lastImageUrl ??= await _supabaseService.uploadImage(
-        compressedImage,
-        deviceId,
-      );
+      if (!_cancelRequested) {
+        lastImageUrl ??= await _supabaseService.uploadImage(
+          compressedImage,
+          deviceId,
+        );
+      }
 
-      if (lastImageUrl != null) {
+      if (lastImageUrl != null && !_cancelRequested) {
         // Run asynchronously, don’t block interaction
         unawaited(
           _supabaseService.saveLogJson(
@@ -211,10 +301,16 @@ class CameraScreenState extends State<CameraScreen> {
           ),
         );
       }
-      Future.delayed(const Duration(milliseconds: 500), _askQuestion);
+
+      // Only continue the "ask question" loop if not cancelled
+      if (!_cancelRequested) {
+        Future.delayed(const Duration(milliseconds: 500), () {
+          if (!_cancelRequested) _askQuestion();
+        });
+      }
     } else {
       setState(() => spokenText = "Error occurred.");
-      TtsService().speak("Error occurred.");
+      if (!_cancelRequested) TtsService().speak("Error occurred.");
     }
 
     setState(
@@ -223,7 +319,18 @@ class CameraScreenState extends State<CameraScreen> {
   }
 
   Future<void> _askQuestion() async {
+    // If user previously cancelled, stop chain
+    if (_cancelRequested) {
+      debugPrint("_askQuestion: cancelled at start");
+      setState(() {
+        isProcessing = false;
+        spokenText = "Stopped.";
+      });
+      return;
+    }
+
     await TtsService().stop();
+
     if (lastCapturedImage == null) {
       await _processScene();
       return;
@@ -236,6 +343,15 @@ class CameraScreenState extends State<CameraScreen> {
     });
 
     final String newPrompt = await SpeechService.startListening();
+
+    if (_cancelRequested) {
+      debugPrint("_askQuestion: cancelled after listening");
+      setState(() {
+        isProcessing = false;
+        spokenText = "Stopped.";
+      });
+      return;
+    }
 
     if (newPrompt.trim().isEmpty) {
       setState(() => spokenText = "No more questions. Stopping");
@@ -258,19 +374,30 @@ class CameraScreenState extends State<CameraScreen> {
       prompt: finalPrompt,
     );
 
+    if (_cancelRequested) {
+      debugPrint("_askQuestion: cancelled after gemini");
+      setState(() {
+        isProcessing = false;
+        spokenText = "Stopped.";
+      });
+      return;
+    }
+
     if (result != null &&
         !result.toLowerCase().startsWith("error") &&
         !result.toLowerCase().contains("exception")) {
       setState(() => spokenText = result);
 
-      // ✅ Run TTS in background
-      await TtsService().speak(result);
+      // ✅ Run TTS in background — skip if cancelled
+      if (!_cancelRequested) {
+        await TtsService().speak(result);
+      }
 
       qaHistory.add({"question": newPrompt, "answer": result});
       if (qaHistory.length > 2) qaHistory.removeAt(0);
 
       final deviceId = await _getDeviceId();
-      if (lastImageUrl != null) {
+      if (lastImageUrl != null && !_cancelRequested) {
         unawaited(
           _supabaseService.saveLogJson(
             deviceId: deviceId,
@@ -281,11 +408,15 @@ class CameraScreenState extends State<CameraScreen> {
         );
       }
 
-      // Trigger _askQuestion
-      Future.delayed(const Duration(milliseconds: 500), _askQuestion);
+      // Trigger next _askQuestion only if not cancelled
+      if (!_cancelRequested) {
+        Future.delayed(const Duration(milliseconds: 500), () {
+          if (!_cancelRequested) _askQuestion();
+        });
+      }
     } else {
       setState(() => spokenText = "Error occurred.");
-      TtsService().speak("Error occurred.");
+      if (!_cancelRequested) TtsService().speak("Error occurred.");
     }
 
     setState(() => isProcessing = false);
@@ -451,26 +582,32 @@ class CameraScreenState extends State<CameraScreen> {
                           SizedBox(
                             width: double.infinity,
                             child: GestureDetector(
+                              // single tap: start capture if not already processing
                               onTap:
                                   isProcessing
                                       ? null
-                                      : _processScene, // single tap
-                              onDoubleTap:
-                                  isProcessing
-                                      ? null
-                                      : _askQuestion, // double tap
+                                      : () {
+                                        // clear any previous cancellation when user explicitly triggers single click
+                                        _cancelRequested = false;
+                                        _processScene();
+                                      },
+                              // double tap: ALWAYS stop/cancel regardless of isProcessing
+                              onDoubleTap: () async {
+                                debugPrint(
+                                  "🎯 Double tap on button — requesting stop",
+                                );
+                                await _requestStop();
+                              },
                               child: AbsorbPointer(
-                                // 👈 prevents the button from firing its onPressed
                                 child: ElevatedButton.icon(
-                                  onPressed:
-                                      () {}, // 👈 must not be null, otherwise button looks disabled
+                                  onPressed: () {}, // required for style
                                   icon: const Icon(Icons.image_search_rounded),
                                   label: Text(
                                     isProcessing
                                         ? "Processing..."
-                                        : "Tap: Capture | Double Tap: Ask",
+                                        : "Tap: Capture | Double Tap: Stop",
                                     style: const TextStyle(
-                                      fontSize: 16,
+                                      fontSize: 14,
                                       fontWeight: FontWeight.bold,
                                     ),
                                   ),
