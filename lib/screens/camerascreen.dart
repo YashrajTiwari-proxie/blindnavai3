@@ -269,6 +269,24 @@ class CameraScreenState extends State<CameraScreen> {
     if (result != null &&
         !result.toLowerCase().startsWith("error") &&
         !result.toLowerCase().contains("exception")) {
+      final deviceId = await _getDeviceId();
+      if (!_cancelRequested) {
+        lastImageUrl ??= await _supabaseService.uploadImage(
+          compressedImage,
+          deviceId,
+        );
+      }
+
+      if (lastImageUrl != null && !_cancelRequested) {
+        unawaited(
+          _supabaseService.saveLogJson(
+            deviceId: deviceId,
+            imagePath: lastImageUrl!,
+            question: prompt,
+            answer: result,
+          ),
+        );
+      }
       setState(() => spokenText = result);
 
       // ✅ Run TTS & save in background — skip TTS if cancellation requested
@@ -286,26 +304,6 @@ class CameraScreenState extends State<CameraScreen> {
 
       qaHistory.add({"question": prompt, "answer": result});
       if (qaHistory.length > 2) qaHistory.removeAt(0);
-
-      final deviceId = await _getDeviceId();
-      if (!_cancelRequested) {
-        lastImageUrl ??= await _supabaseService.uploadImage(
-          compressedImage,
-          deviceId,
-        );
-      }
-
-      if (lastImageUrl != null && !_cancelRequested) {
-        // Run asynchronously, don’t block interaction
-        unawaited(
-          _supabaseService.saveLogJson(
-            deviceId: deviceId,
-            imagePath: lastImageUrl!,
-            question: prompt,
-            answer: result,
-          ),
-        );
-      }
 
       // Only continue the "ask question" loop if not cancelled
       if (!_cancelRequested) {
@@ -391,16 +389,6 @@ class CameraScreenState extends State<CameraScreen> {
     if (result != null &&
         !result.toLowerCase().startsWith("error") &&
         !result.toLowerCase().contains("exception")) {
-      setState(() => spokenText = result);
-
-      // ✅ Run TTS in background — skip if cancelled
-      if (!_cancelRequested) {
-        await TtsService().speak(result);
-      }
-
-      qaHistory.add({"question": newPrompt, "answer": result});
-      if (qaHistory.length > 2) qaHistory.removeAt(0);
-
       final deviceId = await _getDeviceId();
       if (lastImageUrl != null && !_cancelRequested) {
         unawaited(
@@ -412,6 +400,15 @@ class CameraScreenState extends State<CameraScreen> {
           ),
         );
       }
+      setState(() => spokenText = result);
+
+      // ✅ Run TTS in background — skip if cancelled
+      if (!_cancelRequested) {
+        await TtsService().speak(result);
+      }
+
+      qaHistory.add({"question": newPrompt, "answer": result});
+      if (qaHistory.length > 2) qaHistory.removeAt(0);
 
       // Trigger next _askQuestion only if not cancelled
       if (!_cancelRequested) {
