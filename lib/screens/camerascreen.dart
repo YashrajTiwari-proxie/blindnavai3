@@ -106,7 +106,8 @@ class CameraScreenState extends State<CameraScreen> {
       // ignore
     }
     // ✅ Play stop chime + long vibration
-    await _playSound(assetPath: endSound, vibrationDuration: 300);
+    await _playAudio(soundAsset: endSound, repeat: 2, vibrationDuration: 300);
+
     setState(() {
       isProcessing = false;
       spokenText = text;
@@ -215,7 +216,7 @@ class CameraScreenState extends State<CameraScreen> {
 
     setState(() => spokenText = "Compressing image...");
     final Uint8List? compressedImage = await _compressImage(imageBytes);
-    await _playSound(assetPath: readySound);
+    await _playAudio(soundAsset: readySound, vibrationDuration: 120);
 
     if (_cancelRequested) {
       debugPrint("_processScene: cancelled after compress");
@@ -290,16 +291,10 @@ class CameraScreenState extends State<CameraScreen> {
 
       // ✅ Run TTS & save in background — skip TTS if cancellation requested
       if (!_cancelRequested) {
-        await _speakAndPlay(
-          text: result,
-          soundAsset: endSound,
-          vibrationDuration: 300,
-        );
+        await _playAudio(text: result);
       } else {
         debugPrint("_processScene: skipping TTS due to cancellation");
       }
-
-      // ✅ Chime + short vibration for success
 
       qaHistory.add({"question": prompt, "answer": result});
       if (qaHistory.length > 2) qaHistory.removeAt(0);
@@ -357,7 +352,7 @@ class CameraScreenState extends State<CameraScreen> {
 
     if (newPrompt.trim().isEmpty) {
       setState(() => spokenText = "No more questions. Stopping");
-      _playSound(assetPath: endSound, vibrationDuration: 150);
+      await _playAudio(soundAsset: endSound, repeat: 2, vibrationDuration: 000);
       isProcessing = false;
       return;
     }
@@ -424,58 +419,43 @@ class CameraScreenState extends State<CameraScreen> {
     setState(() => isProcessing = false);
   }
 
-  Future<void> _speakAndPlay({
-    required String text,
+  /// Unified audio helper
+  /// - [text]: optional TTS to speak
+  /// - [soundAsset]: optional sound to play
+  /// - [repeat]: number of times to play the sound (default 1)
+  /// - [vibrationDuration]: vibration per play
+  Future<void> _playAudio({
+    String? text,
     String? soundAsset,
+    int repeat = 1,
     int vibrationDuration = 0,
   }) async {
     try {
       await TtsService().stop();
 
-      await TtsService().speak(text);
+      if (text != null && text.isNotEmpty) {
+        await TtsService().speak(text);
+      }
 
       if (soundAsset != null) {
-        await _playSound(assetPath: soundAsset, vibrationDuration: 200);
-      }
-    } catch (e) {
-      debugPrint("Error in speakAndPlay: $e");
-    }
-  }
+        for (int i = 0; i < repeat; i++) {
+          await _sfxPlayer.stop();
+          await _sfxPlayer.setAsset(soundAsset);
+          await _sfxPlayer.play();
 
-  Future<void> _playSound({
-    required String assetPath,
-    int vibrationDuration = 0,
-  }) async {
-    try {
-      // Stop any previous sound
-      await _sfxPlayer.stop();
-      await _sfxPlayer.setAsset(assetPath);
-
-      final completer = Completer<void>();
-      bool isCompleted = false;
-
-      // Listen for completion safely
-      _sfxPlayer.playerStateStream.listen((state) {
-        if (!isCompleted &&
-            state.processingState == ProcessingState.completed) {
-          isCompleted = true;
-          completer.complete();
-        }
-      });
-
-      await _sfxPlayer.play();
-
-      if (vibrationDuration > 0) {
-        Vibration.hasVibrator().then((hasVibrator) {
-          if (hasVibrator == true) {
-            Vibration.vibrate(duration: vibrationDuration);
+          if (vibrationDuration > 0) {
+            final hasVib = await Vibration.hasVibrator();
+            if (hasVib) Vibration.vibrate(duration: vibrationDuration);
           }
-        });
-      }
 
-      await completer.future;
+          // Wait until finished
+          await _sfxPlayer.playerStateStream.firstWhere(
+            (state) => state.processingState == ProcessingState.completed,
+          );
+        }
+      }
     } catch (e) {
-      debugPrint("Error playing sound: $e");
+      debugPrint("Error in _playAudio: $e");
     }
   }
 
