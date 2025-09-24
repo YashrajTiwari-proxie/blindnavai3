@@ -30,7 +30,7 @@ class GeminiService {
                     "2. Avoid repeating the user prompt.\n"
                     "3. Do not use markdown, symbols, or extraneous commentary.\n"
                     "4. Keep language simple, precise, and easy to visualize.\n"
-                    "5. Always answer in English only.\n"
+                    "5. Always answer in German only.\n"
                     "User prompt: $prompt",
               },
 

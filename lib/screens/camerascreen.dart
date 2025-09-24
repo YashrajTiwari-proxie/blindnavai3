@@ -351,9 +351,11 @@ class CameraScreenState extends State<CameraScreen> {
     }
 
     if (newPrompt.trim().isEmpty) {
-      setState(() => spokenText = "No more questions. Stopping");
-      await _playAudio(soundAsset: endSound, repeat: 2, vibrationDuration: 000);
-      isProcessing = false;
+      setState(() {
+        spokenText = "No more questions. Stopping";
+        isProcessing = false;
+      });
+      await _playAudio(soundAsset: endSound, repeat: 2, vibrationDuration: 0);
       return;
     }
 
