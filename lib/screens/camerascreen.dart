@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:math';
 import 'dart:ui';
 
 import 'package:blindnavaiv3/services/cameraservicenative.dart';
@@ -36,10 +35,9 @@ class CameraScreenState extends State<CameraScreen> {
   String? lastImageUrl;
   List<Map<String, String>> qaHistory = [];
   String deviceId = "unknown device";
-  String readySound = "assets/audio/Gentle_Ding_Clicks_2.wav";
-  String endSound = "assets/audio/Gentle_Ding_Clicks_1.wav";
+  String singleSound = "assets/audio/Gentle_Ding_Clicks_1.wav";
+  String dualSound = "assets/audio/Dual_Ding_Clicks.mp3";
 
-  // NEW: cancellation flag — set when user double-clicks stop
   bool _cancelRequested = false;
 
   @override
@@ -53,8 +51,8 @@ class CameraScreenState extends State<CameraScreen> {
 
   Future<void> _preloadSounds() async {
     try {
-      await _sfxPlayer.setAsset(readySound);
-      await _sfxPlayer.setAsset(endSound);
+      await _sfxPlayer.setAsset(singleSound);
+      await _sfxPlayer.setAsset(dualSound);
     } catch (e) {
       debugPrint("Error preloading sounds: $e");
     }
@@ -106,7 +104,7 @@ class CameraScreenState extends State<CameraScreen> {
       // ignore
     }
     // ✅ Play stop chime + long vibration
-    await _playAudio(soundAsset: endSound, repeat: 2, vibrationDuration: 300);
+    await _playAudio(soundAsset: dualSound, vibrationDuration: 300);
 
     setState(() {
       isProcessing = false;
@@ -216,7 +214,7 @@ class CameraScreenState extends State<CameraScreen> {
 
     setState(() => spokenText = "Compressing image...");
     final Uint8List? compressedImage = await _compressImage(imageBytes);
-    await _playAudio(soundAsset: readySound, vibrationDuration: 120);
+    await _playAudio(soundAsset: singleSound, vibrationDuration: 120);
 
     if (_cancelRequested) {
       debugPrint("_processScene: cancelled after compress");
@@ -355,7 +353,7 @@ class CameraScreenState extends State<CameraScreen> {
         spokenText = "No more questions. Stopping";
         isProcessing = false;
       });
-      await _playAudio(soundAsset: endSound, repeat: 2, vibrationDuration: 0);
+      await _playAudio(soundAsset: dualSound, vibrationDuration: 0);
       return;
     }
 
@@ -424,12 +422,10 @@ class CameraScreenState extends State<CameraScreen> {
   /// Unified audio helper
   /// - [text]: optional TTS to speak
   /// - [soundAsset]: optional sound to play
-  /// - [repeat]: number of times to play the sound (default 1)
-  /// - [vibrationDuration]: vibration per play
+  /// - [vibrationDuration]: vibration duration in ms
   Future<void> _playAudio({
     String? text,
     String? soundAsset,
-    int repeat = 1,
     int vibrationDuration = 0,
   }) async {
     try {
@@ -440,21 +436,23 @@ class CameraScreenState extends State<CameraScreen> {
       }
 
       if (soundAsset != null) {
-        for (int i = 0; i < repeat; i++) {
-          await _sfxPlayer.stop();
-          await _sfxPlayer.setAsset(soundAsset);
-          await _sfxPlayer.play();
+        // play sound once
+        await _sfxPlayer.stop();
+        await _sfxPlayer.setAsset(soundAsset);
+        await _sfxPlayer.play();
 
-          if (vibrationDuration > 0) {
-            final hasVib = await Vibration.hasVibrator();
-            if (hasVib) Vibration.vibrate(duration: vibrationDuration);
+        // trigger vibration in parallel (no await needed)
+        if (vibrationDuration > 0) {
+          final hasVib = await Vibration.hasVibrator();
+          if (hasVib) {
+            Vibration.vibrate(duration: vibrationDuration);
           }
-
-          // Wait until finished
-          await _sfxPlayer.playerStateStream.firstWhere(
-            (state) => state.processingState == ProcessingState.completed,
-          );
         }
+
+        // wait until finished
+        await _sfxPlayer.playerStateStream.firstWhere(
+          (state) => state.processingState == ProcessingState.completed,
+        );
       }
     } catch (e) {
       debugPrint("Error in _playAudio: $e");
