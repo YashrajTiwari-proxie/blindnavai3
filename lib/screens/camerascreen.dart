@@ -112,55 +112,32 @@ class CameraScreenState extends State<CameraScreen> {
     });
   }
 
+  Timer? _singleClickTimer;
+
   void _setupScreenKeyListener() {
     _screenChannel.setMethodCallHandler((call) async {
       switch (call.method) {
-        case 'screenOff':
-          debugPrint("Screen turned off! Stopping TTS...");
-          await TtsService().stop();
-          break;
-
         case 'keyPressed':
           final int keyCode = call.arguments;
           debugPrint("Key pressed: $keyCode");
 
-          final now = DateTime.now();
-          if (_lastKeyPressTime != null &&
-              now.difference(_lastKeyPressTime!).inMilliseconds < 400) {
-            // ✅ Double click detected (within 400ms)
+          if (_singleClickTimer != null && _singleClickTimer!.isActive) {
+            _singleClickTimer!.cancel();
             debugPrint("🎯 Double click detected on clicker — requesting stop");
             await _requestStop();
-            _lastKeyPressTime = null; // reset
           } else {
-            // ✅ First press — schedule single-click action after 400ms
-            _lastKeyPressTime = now;
-            Future.delayed(const Duration(milliseconds: 400), () {
-              // If lastKeyPressTime was nulled by a double-click, do nothing.
-              if (_lastKeyPressTime == null) return;
-
-              if (DateTime.now()
-                      .difference(_lastKeyPressTime!)
-                      .inMilliseconds >=
-                  400) {
-                // Only start a single-click action if not already processing
-                if (!isProcessing) {
-                  // Clear any previous cancel request (user pressed new single click)
-                  _cancelRequested = false;
-                  debugPrint(
-                    "📸 Single click detected on clicker — starting capture",
-                  );
-                  _processScene();
-                } else {
-                  debugPrint("Single click ignored: already processing");
-                }
-                _lastKeyPressTime = null; // reset
+            _singleClickTimer = Timer(const Duration(milliseconds: 400), () {
+              if (!isProcessing) {
+                _cancelRequested = false;
+                debugPrint(
+                  "📸 Single click detected on clicker — starting capture",
+                );
+                _processScene();
+              } else {
+                debugPrint("Single click ignored: already processing");
               }
             });
           }
-          break;
-
-        case 'screenOn':
-          debugPrint("Screen turned on");
           break;
       }
     });
