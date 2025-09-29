@@ -451,10 +451,10 @@ class CameraScreenState extends State<CameraScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              CircularProgressIndicator(color: Colors.white),
+              CircularProgressIndicator(color: Colors.amberAccent),
               SizedBox(height: 20),
               Text(
-                "Initializing camera...",
+                "Launching Camera...",
                 style: TextStyle(color: Colors.white, fontSize: 16),
               ),
             ],

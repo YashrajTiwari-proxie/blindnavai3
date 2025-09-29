@@ -48,10 +48,10 @@ class _AppEntryPointState extends State<AppEntryPoint> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              CircularProgressIndicator(),
+              CircularProgressIndicator(color: Colors.amberAccent),
               SizedBox(height: 16),
               Text(
-                "Initializing...",
+                "Launching Hilfy...",
                 style: TextStyle(fontSize: 16, color: Colors.white),
               ),
             ],

@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'package:blindnavaiv3/screens/camerascreen.dart';
-import 'package:blindnavaiv3/services/ttsservice.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -65,7 +64,6 @@ class _PermissionHandlerScreenState extends State<PermissionHandlerScreen> {
 
       if (cameraGranted && micGranted) {
         _permissionCheckTimer?.cancel();
-        await TtsService().speak("Welcome to Blind Nav AI");
         _goToMainScreen();
       }
     });
