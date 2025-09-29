@@ -490,7 +490,7 @@ class CameraScreenState extends State<CameraScreen> {
                         horizontal: 24,
                       ),
                       decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.1),
+                        color: Colors.black.withValues(alpha: 0.3),
                         borderRadius: BorderRadius.circular(24),
                         border: Border.all(
                           color: Colors.black.withValues(alpha: 0.1),
@@ -501,9 +501,9 @@ class CameraScreenState extends State<CameraScreen> {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Text(
-                            "IDA AssistanceApp",
+                            "Hilfy",
                             style: TextStyle(
-                              color: Colors.white,
+                              color: Color.fromRGBO(255, 222, 89, 100),
                               fontSize: 24,
                               fontWeight: FontWeight.w800,
                             ),
@@ -514,7 +514,7 @@ class CameraScreenState extends State<CameraScreen> {
                               Icon(
                                 Icons.phone_android_rounded,
                                 size: 18,
-                                color: Colors.white,
+                                color: Colors.greenAccent,
                               ),
                               SizedBox(width: 5),
                               Text(
@@ -522,6 +522,7 @@ class CameraScreenState extends State<CameraScreen> {
                                 textAlign: TextAlign.center,
                                 style: const TextStyle(
                                   fontSize: 14,
+                                  fontWeight: FontWeight.bold,
                                   color: Colors.white,
                                 ),
                               ),
@@ -553,7 +554,7 @@ class CameraScreenState extends State<CameraScreen> {
                         horizontal: 24,
                       ),
                       decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.1),
+                        color: Colors.black.withValues(alpha: 0.3),
                         borderRadius: BorderRadius.circular(24),
                         border: Border.all(
                           color: Colors.black.withValues(alpha: 0.2),
@@ -599,7 +600,10 @@ class CameraScreenState extends State<CameraScreen> {
                               child: AbsorbPointer(
                                 child: ElevatedButton.icon(
                                   onPressed: () {}, // required for style
-                                  icon: const Icon(Icons.image_search_rounded),
+                                  icon: const Icon(
+                                    Icons.image_search_rounded,
+                                    color: Colors.black,
+                                  ),
                                   label: Text(
                                     isProcessing
                                         ? "Processing..."
@@ -607,13 +611,14 @@ class CameraScreenState extends State<CameraScreen> {
                                     style: const TextStyle(
                                       fontSize: 14,
                                       fontWeight: FontWeight.bold,
+                                      color: Colors.black,
                                     ),
                                   ),
                                   style: ElevatedButton.styleFrom(
                                     backgroundColor:
                                         isProcessing
-                                            ? Colors.purple
-                                            : Colors.deepPurpleAccent,
+                                            ? Color.fromRGBO(255, 185, 89, 100)
+                                            : Color.fromRGBO(255, 222, 89, 100),
                                     foregroundColor: Colors.white,
                                     padding: const EdgeInsets.symmetric(
                                       vertical: 16,
