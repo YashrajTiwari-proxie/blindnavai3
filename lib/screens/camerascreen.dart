@@ -47,6 +47,12 @@ class CameraScreenState extends State<CameraScreen> {
     _setupScreenKeyListener();
     _initDeviceId();
     _preloadSounds();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await Future.delayed(const Duration(milliseconds: 500));
+      await TtsService().speak(
+        "Hilfy hat geöffnet. Fahren Sie mit der Aufnahme des Fotos fort",
+      );
+    }); // | Willkommen bei Hilfy.
   }
 
   Future<void> _preloadSounds() async {
