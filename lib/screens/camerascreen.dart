@@ -134,17 +134,25 @@ class CameraScreenState extends State<CameraScreen> {
             debugPrint("🎯 Double click detected on clicker — requesting stop");
             await _requestStop();
           } else {
-            _singleClickTimer = Timer(const Duration(milliseconds: 400), () {
-              if (!isProcessing) {
-                _cancelRequested = false;
+            _singleClickTimer = Timer(
+              const Duration(milliseconds: 400),
+              () async {
                 debugPrint(
-                  "📸 Single click detected on clicker — starting capture",
+                  "📸 Single click detected on clicker — restarting session",
                 );
+
+                // Stop any ongoing processing
+                if (isProcessing) {
+                  await _requestStop(text: "Restarting session...");
+                }
+
+                // Clear cancellation flag
+                _cancelRequested = false;
+
+                // Start new session
                 _processScene();
-              } else {
-                debugPrint("Single click ignored: already processing");
-              }
-            });
+              },
+            );
           }
           break;
       }
@@ -590,14 +598,25 @@ class CameraScreenState extends State<CameraScreen> {
                             width: double.infinity,
                             child: GestureDetector(
                               // single tap: start capture if not already processing
-                              onTap:
-                                  isProcessing
-                                      ? null
-                                      : () {
-                                        // clear any previous cancellation when user explicitly triggers single click
-                                        _cancelRequested = false;
-                                        _processScene();
-                                      },
+                              onTap: () async {
+                                debugPrint(
+                                  "🎯 Single tap detected — restarting session",
+                                );
+
+                                // Stop any ongoing processing
+                                if (isProcessing) {
+                                  await _requestStop(
+                                    text: "Restarting session...",
+                                  );
+                                }
+
+                                // Clear cancellation flag
+                                _cancelRequested = false;
+
+                                // Start new session
+                                _processScene();
+                              },
+
                               // double tap: ALWAYS stop/cancel regardless of isProcessing
                               onDoubleTap: () async {
                                 debugPrint(
