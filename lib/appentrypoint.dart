@@ -29,10 +29,6 @@ class _AppEntryPointState extends State<AppEntryPoint> {
 
     final granted = cameraStatus.isGranted && micStatus.isGranted;
 
-    if (granted) {
-      await TtsService().speak("Welcome to Blind Nav AI");
-    }
-
     setState(() {
       _permissionsGranted = granted;
       _isChecking = false;

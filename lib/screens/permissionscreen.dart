@@ -85,7 +85,7 @@ class _PermissionHandlerScreenState extends State<PermissionHandlerScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    CircularProgressIndicator(),
+                    CircularProgressIndicator(color: Colors.amberAccent),
                     SizedBox(height: 20),
                     Text(
                       "Checking permissions...",
@@ -103,11 +103,11 @@ class _PermissionHandlerScreenState extends State<PermissionHandlerScreen> {
                       const Icon(
                         Icons.lock_outline,
                         size: 80,
-                        color: Colors.red,
+                        color: Colors.redAccent,
                       ),
                       const SizedBox(height: 20),
                       const Text(
-                        "This app needs access to the Camera and Microphone to function properly.",
+                        "Hilfy benötigt Zugriff auf die Kamera und das Mikrofon, um korrekt zu funktionieren.",
                         style: TextStyle(fontSize: 18, color: Colors.white),
                         textAlign: TextAlign.center,
                       ),
@@ -119,31 +119,47 @@ class _PermissionHandlerScreenState extends State<PermissionHandlerScreen> {
                             _cameraGranted
                                 ? Icons.camera_alt
                                 : Icons.camera_alt_outlined,
-                            color: _cameraGranted ? Colors.green : Colors.red,
+                            color:
+                                _cameraGranted
+                                    ? Colors.green
+                                    : Colors.redAccent,
                             size: 40,
                           ),
                           const SizedBox(width: 30),
                           Icon(
                             _micGranted ? Icons.mic : Icons.mic_off,
-                            color: _micGranted ? Colors.green : Colors.red,
+                            color:
+                                _micGranted ? Colors.green : Colors.redAccent,
                             size: 40,
                           ),
                         ],
                       ),
                       const SizedBox(height: 30),
                       ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Color.fromRGBO(255, 222, 89, 100),
+                        ),
                         onPressed: () async {
                           await Permission.camera.request();
                           await Permission.microphone.request();
                         },
-                        icon: const Icon(Icons.refresh),
-                        label: const Text("Refresh Permissions"),
+                        icon: const Icon(Icons.refresh, color: Colors.black),
+                        label: const Text(
+                          "Refresh Permissions",
+                          style: TextStyle(color: Colors.black),
+                        ),
                       ),
                       const SizedBox(height: 10),
                       ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Color.fromRGBO(255, 222, 89, 100),
+                        ),
                         onPressed: openAppSettings,
-                        icon: const Icon(Icons.settings),
-                        label: const Text("Open App Settings"),
+                        icon: const Icon(Icons.settings, color: Colors.black),
+                        label: const Text(
+                          "Open App Settings",
+                          style: TextStyle(color: Colors.black),
+                        ),
                       ),
                     ],
                   ),
