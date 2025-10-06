@@ -37,6 +37,7 @@ class CameraScreenState extends State<CameraScreen> {
   String deviceId = "unknown device";
   String singleSound = "assets/audio/Gentle_Ding_Clicks_1.wav";
   String dualSound = "assets/audio/Dual_Ding_Clicks.mp3";
+  int _sessionId = 0;
 
   bool _cancelRequested = false;
 
@@ -101,6 +102,7 @@ class CameraScreenState extends State<CameraScreen> {
     _cancelRequested = true;
 
     try {
+      SpeechService.stopListening;
       await TtsService().stop();
     } catch (e) {
       debugPrint("TTS stop error: $e");
@@ -111,8 +113,6 @@ class CameraScreenState extends State<CameraScreen> {
     } catch (e) {
       // ignore
     }
-    // ✅ Play stop chime + long vibration
-    await _playAudio(soundAsset: dualSound, vibrationDuration: 300);
 
     setState(() {
       isProcessing = false;
@@ -120,41 +120,75 @@ class CameraScreenState extends State<CameraScreen> {
     });
   }
 
+  Future<void> _resetSession({String stopText = "Stopped."}) async {
+    debugPrint("🔄 Resetting session");
+
+    // Cancel ongoing processing
+    _cancelRequested = true;
+
+    try {
+      await SpeechService.stopListening();
+    } catch (e) {
+      debugPrint("Speech stop error: $e");
+    }
+
+    try {
+      await TtsService().stop();
+    } catch (e) {
+      debugPrint("TTS stop error: $e");
+    }
+
+    try {
+      await player.stop();
+    } catch (_) {}
+
+    // Clear state
+    lastCapturedImage = null;
+    lastImageUrl = null;
+    qaHistory.clear();
+
+    setState(() {
+      isProcessing = false;
+      spokenText = stopText;
+    });
+  }
+
+  Future<void> _startNewSession() async {
+    await _resetSession(stopText: "Starting new session...");
+
+    // Increment session ID for cancellation tracking
+    _sessionId++;
+
+    // Clear cancellation flag
+    _cancelRequested = false;
+
+    // Play single click sound
+    await _playAudio(soundAsset: singleSound, vibrationDuration: 120);
+
+    // Start processing scene for this session
+    final int currentSession = _sessionId;
+    await _processScene(session: currentSession);
+  }
+
   Timer? _singleClickTimer;
 
   void _setupScreenKeyListener() {
     _screenChannel.setMethodCallHandler((call) async {
-      switch (call.method) {
-        case 'keyPressed':
-          final int keyCode = call.arguments;
-          debugPrint("Key pressed: $keyCode");
-
-          if (_singleClickTimer != null && _singleClickTimer!.isActive) {
-            _singleClickTimer!.cancel();
-            debugPrint("🎯 Double click detected on clicker — requesting stop");
-            await _requestStop();
-          } else {
-            _singleClickTimer = Timer(
-              const Duration(milliseconds: 400),
-              () async {
-                debugPrint(
-                  "📸 Single click detected on clicker — restarting session",
-                );
-
-                // Stop any ongoing processing
-                if (isProcessing) {
-                  await _requestStop(text: "Restarting session...");
-                }
-
-                // Clear cancellation flag
-                _cancelRequested = false;
-
-                // Start new session
-                _processScene();
-              },
-            );
-          }
-          break;
+      if (call.method == 'keyPressed') {
+        if (_singleClickTimer != null && _singleClickTimer!.isActive) {
+          _singleClickTimer!.cancel();
+          debugPrint("🎯 Double click detected — stopping everything");
+          await _resetSession(stopText: "Stopped by double click");
+          await _playAudio(soundAsset: dualSound, vibrationDuration: 300);
+        } else {
+          _singleClickTimer = Timer(
+            const Duration(milliseconds: 400),
+            () async {
+              debugPrint("📸 Single click detected — starting new session");
+              await _startNewSession();
+            },
+          );
+        }
       }
     });
   }
@@ -170,26 +204,22 @@ class CameraScreenState extends State<CameraScreen> {
     );
   }
 
-  Future<void> _processScene() async {
-    _cancelRequested = false;
-
-    await TtsService().stop();
+  Future<void> _processScene({required int session}) async {
     if (_isCameraInitialized == false) return;
 
     setState(() {
       spokenText = "Capturing image...";
-      isProcessing = true; // only blocks capture while analyzing
+      isProcessing = true;
     });
 
     qaHistory = [];
     lastImageUrl = null;
 
-    // capture image (may be long)
     final Uint8List? imageBytes = await _cameraService.captureImage();
 
-    // If cancellation was requested while the capture was happening, stop now
-    if (_cancelRequested) {
-      debugPrint("_processScene: cancelled after capture");
+    // Check if this session is still active
+    if (_cancelRequested || session != _sessionId) {
+      debugPrint("_processScene: cancelled mid-way");
       setState(() {
         isProcessing = false;
         spokenText = "Stopped.";
@@ -207,9 +237,8 @@ class CameraScreenState extends State<CameraScreen> {
 
     setState(() => spokenText = "Compressing image...");
     final Uint8List? compressedImage = await _compressImage(imageBytes);
-    await _playAudio(soundAsset: singleSound, vibrationDuration: 120);
 
-    if (_cancelRequested) {
+    if (_cancelRequested || session != _sessionId) {
       debugPrint("_processScene: cancelled after compress");
       setState(() {
         isProcessing = false;
@@ -218,22 +247,13 @@ class CameraScreenState extends State<CameraScreen> {
       return;
     }
 
-    if (compressedImage == null) {
-      setState(() {
-        spokenText = "Image compression failed.";
-        isProcessing = false;
-      });
-      return;
-    }
-
     lastCapturedImage = compressedImage;
 
-    // Listen for question
     setState(() => spokenText = "Listening for question...");
     Vibration.vibrate(duration: 400, amplitude: 250);
     final String prompt = await SpeechService.startListening();
 
-    if (_cancelRequested) {
+    if (_cancelRequested || session != _sessionId) {
       debugPrint("_processScene: cancelled after listening");
       setState(() {
         isProcessing = false;
@@ -244,12 +264,12 @@ class CameraScreenState extends State<CameraScreen> {
 
     setState(() => spokenText = "Processing...");
     final String? result = await GeminiService.processImageWithPrompt(
-      imageBytes: compressedImage,
+      imageBytes: compressedImage!,
       prompt: prompt,
     );
 
-    if (_cancelRequested) {
-      debugPrint("_processScene: cancelled after gemini");
+    if (_cancelRequested || session != _sessionId) {
+      debugPrint("_processScene: cancelled after Gemini");
       setState(() {
         isProcessing = false;
         spokenText = "Stopped.";
@@ -261,14 +281,12 @@ class CameraScreenState extends State<CameraScreen> {
         !result.toLowerCase().startsWith("error") &&
         !result.toLowerCase().contains("exception")) {
       final deviceId = await _getDeviceId();
-      if (!_cancelRequested) {
-        lastImageUrl ??= await _supabaseService.uploadImage(
-          compressedImage,
-          deviceId,
-        );
-      }
+      lastImageUrl ??= await _supabaseService.uploadImage(
+        compressedImage,
+        deviceId,
+      );
 
-      if (lastImageUrl != null && !_cancelRequested) {
+      if (lastImageUrl != null) {
         unawaited(
           _supabaseService.saveLogJson(
             deviceId: deviceId,
@@ -278,22 +296,18 @@ class CameraScreenState extends State<CameraScreen> {
           ),
         );
       }
-      setState(() => spokenText = result);
 
-      // ✅ Run TTS & save in background — skip TTS if cancellation requested
-      if (!_cancelRequested) {
-        await _playAudio(text: result);
-      } else {
-        debugPrint("_processScene: skipping TTS due to cancellation");
-      }
+      setState(() => spokenText = result);
+      await _playAudio(text: result);
 
       qaHistory.add({"question": prompt, "answer": result});
       if (qaHistory.length > 2) qaHistory.removeAt(0);
 
-      // Only continue the "ask question" loop if not cancelled
-      if (!_cancelRequested) {
+      if (!_cancelRequested && session == _sessionId) {
         Future.delayed(const Duration(milliseconds: 500), () {
-          if (!_cancelRequested) _askQuestion();
+          if (!_cancelRequested && session == _sessionId) {
+            _askQuestion(session: session);
+          }
         });
       }
     } else {
@@ -301,14 +315,11 @@ class CameraScreenState extends State<CameraScreen> {
       if (!_cancelRequested) TtsService().speak("Error occurred.");
     }
 
-    setState(
-      () => isProcessing = false,
-    ); // ✅ interaction re-enabled immediately
+    setState(() => isProcessing = false);
   }
 
-  Future<void> _askQuestion() async {
-    // If user previously cancelled, stop chain
-    if (_cancelRequested) {
+  Future<void> _askQuestion({required int session}) async {
+    if (_cancelRequested || session != _sessionId) {
       debugPrint("_askQuestion: cancelled at start");
       setState(() {
         isProcessing = false;
@@ -320,19 +331,19 @@ class CameraScreenState extends State<CameraScreen> {
     await TtsService().stop();
 
     if (lastCapturedImage == null) {
-      await _processScene();
+      await _processScene(session: session);
       return;
     }
 
     setState(() {
       spokenText = "Listening for new question...";
-      isProcessing = true; // only blocks during gemini analysis
+      isProcessing = true;
     });
 
     Vibration.vibrate(duration: 400, amplitude: 250);
     final String newPrompt = await SpeechService.startListening();
 
-    if (_cancelRequested) {
+    if (_cancelRequested || session != _sessionId) {
       debugPrint("_askQuestion: cancelled after listening");
       setState(() {
         isProcessing = false;
@@ -365,8 +376,8 @@ class CameraScreenState extends State<CameraScreen> {
       prompt: finalPrompt,
     );
 
-    if (_cancelRequested) {
-      debugPrint("_askQuestion: cancelled after gemini");
+    if (_cancelRequested || session != _sessionId) {
+      debugPrint("_askQuestion: cancelled after Gemini");
       setState(() {
         isProcessing = false;
         spokenText = "Stopped.";
@@ -378,7 +389,7 @@ class CameraScreenState extends State<CameraScreen> {
         !result.toLowerCase().startsWith("error") &&
         !result.toLowerCase().contains("exception")) {
       final deviceId = await _getDeviceId();
-      if (lastImageUrl != null && !_cancelRequested) {
+      if (lastImageUrl != null) {
         unawaited(
           _supabaseService.saveLogJson(
             deviceId: deviceId,
@@ -388,20 +399,18 @@ class CameraScreenState extends State<CameraScreen> {
           ),
         );
       }
-      setState(() => spokenText = result);
 
-      // ✅ Run TTS in background — skip if cancelled
-      if (!_cancelRequested) {
-        await TtsService().speak(result);
-      }
+      setState(() => spokenText = result);
+      await _playAudio(text: result);
 
       qaHistory.add({"question": newPrompt, "answer": result});
       if (qaHistory.length > 2) qaHistory.removeAt(0);
 
-      // Trigger next _askQuestion only if not cancelled
-      if (!_cancelRequested) {
+      if (!_cancelRequested && session == _sessionId) {
         Future.delayed(const Duration(milliseconds: 500), () {
-          if (!_cancelRequested) _askQuestion();
+          if (!_cancelRequested && session == _sessionId) {
+            _askQuestion(session: session);
+          }
         });
       }
     } else {
@@ -603,26 +612,21 @@ class CameraScreenState extends State<CameraScreen> {
                                   "🎯 Single tap detected — restarting session",
                                 );
 
-                                // Stop any ongoing processing
-                                if (isProcessing) {
-                                  await _requestStop(
-                                    text: "Restarting session...",
-                                  );
-                                }
-
-                                // Clear cancellation flag
-                                _cancelRequested = false;
-
-                                // Start new session
-                                _processScene();
+                                await _startNewSession();
                               },
 
                               // double tap: ALWAYS stop/cancel regardless of isProcessing
                               onDoubleTap: () async {
+                                await _resetSession(
+                                  stopText: "Stopped by double tap",
+                                );
                                 debugPrint(
                                   "🎯 Double tap on button — requesting stop",
                                 );
-                                await _requestStop();
+                                await _playAudio(
+                                  soundAsset: dualSound,
+                                  vibrationDuration: 300,
+                                );
                               },
                               child: AbsorbPointer(
                                 child: ElevatedButton.icon(
