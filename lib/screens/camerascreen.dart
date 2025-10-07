@@ -30,11 +30,11 @@ class CameraScreenState extends State<CameraScreen> {
   final AudioPlayer _sfxPlayer = AudioPlayer();
   bool _isCameraInitialized = false;
   bool isProcessing = false;
-  String spokenText = "Press the button to begin.";
+  String spokenText = "Drücken Sie die Taste, um zu beginnen.";
   Uint8List? lastCapturedImage;
   String? lastImageUrl;
   List<Map<String, String>> qaHistory = [];
-  String deviceId = "unknown device";
+  String deviceId = "unbekanntes Gerät";
   String singleSound = "assets/audio/Gentle_Ding_Clicks_1.wav";
   String dualSound = "assets/audio/Dual_Ding_Clicks.mp3";
   int _sessionId = 0;
@@ -60,8 +60,14 @@ class CameraScreenState extends State<CameraScreen> {
 
   Future<void> _preloadSounds() async {
     try {
-      await _sfxPlayer.setAsset(singleSound);
-      await _sfxPlayer.setAsset(dualSound);
+      final player1 = AudioPlayer();
+      final player2 = AudioPlayer();
+      await Future.wait([
+        player1.setAsset(singleSound),
+        player2.setAsset(dualSound),
+      ]);
+      await player1.dispose();
+      await player2.dispose();
     } catch (e) {
       debugPrint("Error preloading sounds: $e");
     }
@@ -102,7 +108,7 @@ class CameraScreenState extends State<CameraScreen> {
     _cancelRequested = true;
 
     try {
-      SpeechService.stopListening;
+      SpeechService.stopListening();
       await TtsService().stop();
     } catch (e) {
       debugPrint("TTS stop error: $e");
@@ -154,7 +160,11 @@ class CameraScreenState extends State<CameraScreen> {
   }
 
   Future<void> _startNewSession() async {
-    await _resetSession(stopText: "Starting new session...");
+    if (isProcessing) {
+      debugPrint("⚠️ Ignoring new session start — already processing");
+      return;
+    }
+    await _resetSession(stopText: "Neue Sitzung wird gestartet...");
 
     // Increment session ID for cancellation tracking
     _sessionId++;
@@ -170,26 +180,41 @@ class CameraScreenState extends State<CameraScreen> {
     await _processScene(session: currentSession);
   }
 
-  Timer? _singleClickTimer;
+  DateTime? _lastClickTime;
+  Timer? _lastClickTimer;
 
   void _setupScreenKeyListener() {
     _screenChannel.setMethodCallHandler((call) async {
-      if (call.method == 'keyPressed') {
-        if (_singleClickTimer != null && _singleClickTimer!.isActive) {
-          _singleClickTimer!.cancel();
-          debugPrint("🎯 Double click detected — stopping everything");
-          await _resetSession(stopText: "Stopped by double click");
-          await _playAudio(soundAsset: dualSound, vibrationDuration: 300);
-        } else {
-          _singleClickTimer = Timer(
-            const Duration(milliseconds: 400),
-            () async {
-              debugPrint("📸 Single click detected — starting new session");
-              await _startNewSession();
-            },
-          );
-        }
+      if (call.method != 'keyPressed') return;
+
+      final now = DateTime.now();
+
+      // 🛑 Double click → stop only
+      if (_lastClickTime != null &&
+          now.difference(_lastClickTime!) < const Duration(milliseconds: 400)) {
+        _lastClickTimer?.cancel();
+        _lastClickTimer = null;
+        _lastClickTime = null;
+
+        debugPrint("🛑 Double click detected (hardware) — stopping session");
+        await _resetSession(stopText: "Durch Doppelklick gestoppt");
+        await _playAudio(soundAsset: dualSound, vibrationDuration: 300);
+        return;
       }
+
+      // Record this click timestamp
+      _lastClickTime = now;
+
+      // 📸 Single click → stop then start (only if no second click within 400ms)
+      _lastClickTimer?.cancel();
+      _lastClickTimer = Timer(const Duration(milliseconds: 400), () async {
+        debugPrint("🎯 Single click detected (hardware) — restart session");
+        await _resetSession(stopText: "Neustart...");
+        await _startNewSession();
+
+        _lastClickTime = null;
+        _lastClickTimer = null;
+      });
     });
   }
 
@@ -208,7 +233,7 @@ class CameraScreenState extends State<CameraScreen> {
     if (_isCameraInitialized == false) return;
 
     setState(() {
-      spokenText = "Capturing image...";
+      spokenText = "Bild wird aufgenommen...";
       isProcessing = true;
     });
 
@@ -222,34 +247,34 @@ class CameraScreenState extends State<CameraScreen> {
       debugPrint("_processScene: cancelled mid-way");
       setState(() {
         isProcessing = false;
-        spokenText = "Stopped.";
+        spokenText = "Angehalten.";
       });
       return;
     }
 
     if (imageBytes == null) {
       setState(() {
-        spokenText = "Failed to capture image.";
+        spokenText = "Bildaufnahme fehlgeschlagen.";
         isProcessing = false;
       });
       return;
     }
 
-    setState(() => spokenText = "Compressing image...");
+    setState(() => spokenText = "Bild wird komprimiert...");
     final Uint8List? compressedImage = await _compressImage(imageBytes);
 
     if (_cancelRequested || session != _sessionId) {
       debugPrint("_processScene: cancelled after compress");
       setState(() {
         isProcessing = false;
-        spokenText = "Stopped.";
+        spokenText = "Angehalten.";
       });
       return;
     }
 
     lastCapturedImage = compressedImage;
 
-    setState(() => spokenText = "Listening for question...");
+    setState(() => spokenText = "Auf Fragen warten ...");
     Vibration.vibrate(duration: 400, amplitude: 250);
     final String prompt = await SpeechService.startListening();
 
@@ -257,12 +282,12 @@ class CameraScreenState extends State<CameraScreen> {
       debugPrint("_processScene: cancelled after listening");
       setState(() {
         isProcessing = false;
-        spokenText = "Stopped.";
+        spokenText = "Angehalten.";
       });
       return;
     }
 
-    setState(() => spokenText = "Processing...");
+    setState(() => spokenText = "Verarbeitung...");
     final String? result = await GeminiService.processImageWithPrompt(
       imageBytes: compressedImage!,
       prompt: prompt,
@@ -272,7 +297,7 @@ class CameraScreenState extends State<CameraScreen> {
       debugPrint("_processScene: cancelled after Gemini");
       setState(() {
         isProcessing = false;
-        spokenText = "Stopped.";
+        spokenText = "Angehalten.";
       });
       return;
     }
@@ -311,8 +336,10 @@ class CameraScreenState extends State<CameraScreen> {
         });
       }
     } else {
-      setState(() => spokenText = "Error occurred.");
-      if (!_cancelRequested) TtsService().speak("Error occurred.");
+      setState(() => spokenText = "Anfrage konnte nicht verarbeitet werden.");
+      if (!_cancelRequested) {
+        TtsService().speak("Anfrage konnte nicht verarbeitet werden.");
+      }
     }
 
     setState(() => isProcessing = false);
@@ -323,7 +350,7 @@ class CameraScreenState extends State<CameraScreen> {
       debugPrint("_askQuestion: cancelled at start");
       setState(() {
         isProcessing = false;
-        spokenText = "Stopped.";
+        spokenText = "Angehalten.";
       });
       return;
     }
@@ -336,7 +363,7 @@ class CameraScreenState extends State<CameraScreen> {
     }
 
     setState(() {
-      spokenText = "Listening for new question...";
+      spokenText = "Warte auf neue Fragen ...";
       isProcessing = true;
     });
 
@@ -347,14 +374,14 @@ class CameraScreenState extends State<CameraScreen> {
       debugPrint("_askQuestion: cancelled after listening");
       setState(() {
         isProcessing = false;
-        spokenText = "Stopped.";
+        spokenText = "Angehalten.";
       });
       return;
     }
 
     if (newPrompt.trim().isEmpty) {
       setState(() {
-        spokenText = "No more questions. Stopping";
+        spokenText = "Keine weiteren Fragen. Anhalten";
         isProcessing = false;
       });
       await _playAudio(soundAsset: dualSound, vibrationDuration: 0);
@@ -370,7 +397,7 @@ class CameraScreenState extends State<CameraScreen> {
             ? "$historyPrompt\n\nNow answer this new question: $newPrompt"
             : newPrompt;
 
-    setState(() => spokenText = "Processing...");
+    setState(() => spokenText = "Verarbeitung...");
     final String? result = await GeminiService.processImageWithPrompt(
       imageBytes: lastCapturedImage!,
       prompt: finalPrompt,
@@ -380,7 +407,7 @@ class CameraScreenState extends State<CameraScreen> {
       debugPrint("_askQuestion: cancelled after Gemini");
       setState(() {
         isProcessing = false;
-        spokenText = "Stopped.";
+        spokenText = "Angehalten.";
       });
       return;
     }
@@ -414,8 +441,10 @@ class CameraScreenState extends State<CameraScreen> {
         });
       }
     } else {
-      setState(() => spokenText = "Error occurred.");
-      if (!_cancelRequested) TtsService().speak("Error occurred.");
+      setState(() => spokenText = "Anfrage kann nicht verarbeitet werden.");
+      if (!_cancelRequested) {
+        TtsService().speak("Anfrage kann nicht verarbeitet werden.");
+      }
     }
 
     setState(() => isProcessing = false);
@@ -464,6 +493,8 @@ class CameraScreenState extends State<CameraScreen> {
   @override
   void dispose() {
     _cameraService.stopCamera();
+    player.dispose();
+    _sfxPlayer.dispose();
     super.dispose();
   }
 
@@ -479,7 +510,7 @@ class CameraScreenState extends State<CameraScreen> {
               CircularProgressIndicator(color: Colors.amberAccent),
               SizedBox(height: 20),
               Text(
-                "Launching Camera...",
+                "Kamera wird gestartet...",
                 style: TextStyle(color: Colors.white, fontSize: 16),
               ),
             ],
@@ -606,22 +637,22 @@ class CameraScreenState extends State<CameraScreen> {
                           SizedBox(
                             width: double.infinity,
                             child: GestureDetector(
-                              // single tap: start capture if not already processing
                               onTap: () async {
-                                debugPrint(
-                                  "🎯 Single tap detected — restarting session",
-                                );
+                                if (isProcessing) {
+                                  debugPrint(
+                                    "🔁 Single tap detected — restarting session safely",
+                                  );
+                                  await _resetSession(stopText: "Neustart...");
+                                }
 
                                 await _startNewSession();
                               },
-
-                              // double tap: ALWAYS stop/cancel regardless of isProcessing
                               onDoubleTap: () async {
-                                await _resetSession(
-                                  stopText: "Stopped by double tap",
-                                );
                                 debugPrint(
-                                  "🎯 Double tap on button — requesting stop",
+                                  "🛑 Double tap detected — stopping everything",
+                                );
+                                await _resetSession(
+                                  stopText: "Durch Doppeltippen gestoppt",
                                 );
                                 await _playAudio(
                                   soundAsset: dualSound,
@@ -630,15 +661,15 @@ class CameraScreenState extends State<CameraScreen> {
                               },
                               child: AbsorbPointer(
                                 child: ElevatedButton.icon(
-                                  onPressed: () {}, // required for style
+                                  onPressed: () {},
                                   icon: const Icon(
                                     Icons.image_search_rounded,
                                     color: Colors.black,
                                   ),
                                   label: Text(
                                     isProcessing
-                                        ? "Processing..."
-                                        : "Tap: Capture | Double Tap: Stop",
+                                        ? "Verarbeitung..."
+                                        : "Tippen: Aufnehmen | Doppeltippen: Stopp",
                                     style: const TextStyle(
                                       fontSize: 14,
                                       fontWeight: FontWeight.bold,
@@ -648,9 +679,18 @@ class CameraScreenState extends State<CameraScreen> {
                                   style: ElevatedButton.styleFrom(
                                     backgroundColor:
                                         isProcessing
-                                            ? Color.fromRGBO(255, 185, 89, 100)
-                                            : Color.fromRGBO(255, 222, 89, 100),
-                                    foregroundColor: Colors.white,
+                                            ? const Color.fromRGBO(
+                                              255,
+                                              185,
+                                              89,
+                                              100,
+                                            )
+                                            : const Color.fromRGBO(
+                                              255,
+                                              222,
+                                              89,
+                                              100,
+                                            ),
                                     padding: const EdgeInsets.symmetric(
                                       vertical: 16,
                                       horizontal: 20,

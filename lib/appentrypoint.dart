@@ -47,7 +47,7 @@ class _AppEntryPointState extends State<AppEntryPoint> {
               CircularProgressIndicator(color: Colors.amberAccent),
               SizedBox(height: 16),
               Text(
-                "Launching Hilfy...",
+                "Hilfy wird gestartet …",
                 style: TextStyle(fontSize: 16, color: Colors.white),
               ),
             ],
