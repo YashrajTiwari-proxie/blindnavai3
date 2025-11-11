@@ -14,11 +14,8 @@ class TtsService {
 
   TtsService._internal();
 
-  /// Ensure TTS is initialized before speaking
   Future<void> init() async {
     if (_isInitialized) return;
-
-    // Avoid multiple concurrent initializations
     if (_initCompleter != null) return _initCompleter!.future;
     _initCompleter = Completer<void>();
 
@@ -27,10 +24,18 @@ class TtsService {
         await _flutterTts.setEngine("com.google.android.tts");
       } else if (Platform.isIOS) {
         await _flutterTts.setSharedInstance(true);
+        await _flutterTts.setIosAudioCategory(
+            IosTextToSpeechAudioCategory.ambient,
+            [
+              IosTextToSpeechAudioCategoryOptions.allowBluetooth,
+              IosTextToSpeechAudioCategoryOptions.allowBluetoothA2DP,
+              IosTextToSpeechAudioCategoryOptions.defaultToSpeaker,
+            ],
+            IosTextToSpeechAudioMode.voicePrompt);
       }
       await _flutterTts.setLanguage("de-DE");
       await _flutterTts.setPitch(1);
-      await _flutterTts.setSpeechRate(0.4);
+      await _flutterTts.setSpeechRate(0.45);
       await _flutterTts.awaitSpeakCompletion(true);
 
       _isInitialized = true;
@@ -46,6 +51,7 @@ class TtsService {
     if (text.isEmpty) return;
 
     try {
+      await _flutterTts.stop();
       await _flutterTts.speak(text);
     } catch (e) {
       debugPrint("TTS Speak Error: $e");

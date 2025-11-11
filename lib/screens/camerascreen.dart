@@ -3,7 +3,6 @@ import 'dart:io';
 import 'dart:ui';
 
 import 'package:blindnavaiv3/services/camera_service_manager.dart';
-import 'package:blindnavaiv3/services/click_manager.dart';
 import 'package:blindnavaiv3/services/dart_speeech_service.dart';
 import 'package:blindnavaiv3/services/dartcameraservice.dart';
 import 'package:blindnavaiv3/services/geminiservice.dart';
@@ -31,7 +30,6 @@ class CameraScreenState extends State<CameraScreen> {
   final SupabaseService _supabaseService = SupabaseService();
   final player = AudioPlayer();
   final AudioPlayer _sfxPlayer = AudioPlayer();
-  late final ClickManager _clickManager;
   bool _isCameraInitialized = false;
   bool isProcessing = false;
   String spokenText = "Drücken Sie die Taste, um zu beginnen.";
@@ -56,13 +54,6 @@ class CameraScreenState extends State<CameraScreen> {
         const Duration(milliseconds: 300),
       );
       await TtsService().speak("Willkommen bei Hilfy");
-    });
-    _clickManager = ClickManager(onSingleClick: () async {
-      debugPrint("Single click detected - start session");
-      await _startNewSession();
-    }, onDoubleClick: () async {
-      debugPrint("Double click detected - stop session");
-      await _resetSession(stopText: "Gestoppt durch Doppelklick");
     });
     HardwareButtonService().init(
       singleClick: () async {

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:blindnavaiv3/services/ttsservice.dart';
 import 'package:flutter/material.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 
@@ -22,7 +23,13 @@ class SpeechService {
 
     if (!service._initialized) {
       await service.init();
+      if (!service._initialized) {
+        debugPrint("Speech recognition not available.");
+        return "";
+      }
     }
+
+    await TtsService().stop();
 
     String recognizedText = '';
     final completer = Completer<String>();
