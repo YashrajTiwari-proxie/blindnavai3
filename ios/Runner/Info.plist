@@ -31,7 +31,7 @@
 	<key>NSMicrophoneUsageDescription</key>
 	<string>This app needs microphone access for speech recognition.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>This app needs speech recognition access to transcribe your voice.</string>
+	<string>This app needs speech recognition access to convert your voice to text for interactive commands.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>
