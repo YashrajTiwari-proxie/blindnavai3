@@ -1,4 +1,5 @@
 import 'package:blindnavaiv3/appentrypoint.dart';
+import 'package:blindnavaiv3/services/camera_service_manager.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -10,6 +11,7 @@ void main() async {
     url: dotenv.env['supabaseUrl'] ?? '',
     anonKey: dotenv.env['supabaseKey'] ?? '',
   );
+  await CameraServiceManager.instance.initialize();
   runApp(const MyApp());
 }
 

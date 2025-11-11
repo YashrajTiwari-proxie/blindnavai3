@@ -2,9 +2,12 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:ui';
 
-import 'package:blindnavaiv3/services/cameraservicenative.dart';
+import 'package:blindnavaiv3/services/camera_service_manager.dart';
+import 'package:blindnavaiv3/services/click_manager.dart';
+import 'package:blindnavaiv3/services/dart_speeech_service.dart';
+import 'package:blindnavaiv3/services/dartcameraservice.dart';
 import 'package:blindnavaiv3/services/geminiservice.dart';
-import 'package:blindnavaiv3/services/speechservice.dart';
+import 'package:blindnavaiv3/services/hardware_button_service.dart';
 import 'package:blindnavaiv3/services/supabase_service.dart';
 import 'package:blindnavaiv3/services/ttsservice.dart';
 import 'package:device_info_plus/device_info_plus.dart';
@@ -23,11 +26,12 @@ class CameraScreen extends StatefulWidget {
 }
 
 class CameraScreenState extends State<CameraScreen> {
-  final CameraServiceNative _cameraService = CameraServiceNative();
-  final MethodChannel _screenChannel = const MethodChannel('screen_state');
+  final GlobalKey<CameraServiceState> _cameraKey =
+      GlobalKey<CameraServiceState>();
   final SupabaseService _supabaseService = SupabaseService();
   final player = AudioPlayer();
   final AudioPlayer _sfxPlayer = AudioPlayer();
+  late final ClickManager _clickManager;
   bool _isCameraInitialized = false;
   bool isProcessing = false;
   String spokenText = "Drücken Sie die Taste, um zu beginnen.";
@@ -44,18 +48,52 @@ class CameraScreenState extends State<CameraScreen> {
   @override
   void initState() {
     super.initState();
-    _delayedInitializeCamera();
-    _setupScreenKeyListener();
     _initDeviceId();
     _preloadSounds();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      await TtsService().init(); // ensure TTS is ready
+      await TtsService().init();
       await Future.delayed(
         const Duration(milliseconds: 300),
-      ); // optional warm-up
+      );
       await TtsService().speak("Willkommen bei Hilfy");
     });
-    //Hilfy hat geöffnet. Fahren Sie mit der Aufnahme des Fotos fort | Willkommen bei Hilfy.
+    _clickManager = ClickManager(onSingleClick: () async {
+      debugPrint("Single click detected - start session");
+      await _startNewSession();
+    }, onDoubleClick: () async {
+      debugPrint("Double click detected - stop session");
+      await _resetSession(stopText: "Gestoppt durch Doppelklick");
+    });
+    HardwareButtonService().init(
+      singleClick: () async {
+        debugPrint("Single click detected - start session");
+        await _startNewSession();
+      },
+      doubleClick: () async {
+        debugPrint("Double click detected - stop session");
+        await _resetSession(stopText: "Gestoppt durch Doppelklick");
+        await _playAudio(
+          soundAsset: dualSound,
+          vibrationDuration: 300,
+        );
+      },
+    );
+
+    _initializeCamera();
+  }
+
+  Future<void> _initializeCamera() async {
+    await CameraServiceManager.instance.initialize();
+    if (!mounted) return;
+
+    if (CameraServiceManager.instance.cameras != null &&
+        CameraServiceManager.instance.cameras!.isNotEmpty) {
+      setState(() {
+        _isCameraInitialized = true;
+      });
+    } else {
+      debugPrint("No cameras available");
+    }
   }
 
   Future<void> _preloadSounds() async {
@@ -93,17 +131,6 @@ class CameraScreenState extends State<CameraScreen> {
     return "unknown_device";
   }
 
-  Future<void> _delayedInitializeCamera() async {
-    await _cameraService.startCamera();
-    await Future.delayed(const Duration(milliseconds: 600));
-
-    setState(() {
-      _isCameraInitialized = true;
-    });
-  }
-
-  DateTime? _lastKeyPressTime;
-
   Future<void> _requestStop({String text = "Stopped."}) async {
     _cancelRequested = true;
 
@@ -133,7 +160,7 @@ class CameraScreenState extends State<CameraScreen> {
     _cancelRequested = true;
 
     try {
-      await SpeechService.stopListening();
+      SpeechService.stopListening();
     } catch (e) {
       debugPrint("Speech stop error: $e");
     }
@@ -180,44 +207,6 @@ class CameraScreenState extends State<CameraScreen> {
     await _processScene(session: currentSession);
   }
 
-  DateTime? _lastClickTime;
-  Timer? _lastClickTimer;
-
-  void _setupScreenKeyListener() {
-    _screenChannel.setMethodCallHandler((call) async {
-      if (call.method != 'keyPressed') return;
-
-      final now = DateTime.now();
-
-      // 🛑 Double click → stop only
-      if (_lastClickTime != null &&
-          now.difference(_lastClickTime!) < const Duration(milliseconds: 400)) {
-        _lastClickTimer?.cancel();
-        _lastClickTimer = null;
-        _lastClickTime = null;
-
-        debugPrint("🛑 Double click detected (hardware) — stopping session");
-        await _resetSession(stopText: "Durch Doppelklick gestoppt");
-        await _playAudio(soundAsset: dualSound, vibrationDuration: 300);
-        return;
-      }
-
-      // Record this click timestamp
-      _lastClickTime = now;
-
-      // 📸 Single click → stop then start (only if no second click within 400ms)
-      _lastClickTimer?.cancel();
-      _lastClickTimer = Timer(const Duration(milliseconds: 400), () async {
-        debugPrint("🎯 Single click detected (hardware) — restart session");
-        await _resetSession(stopText: "Neustart...");
-        await _startNewSession();
-
-        _lastClickTime = null;
-        _lastClickTimer = null;
-      });
-    });
-  }
-
   // Image compression
   Future<Uint8List?> _compressImage(Uint8List input) async {
     return await FlutterImageCompress.compressWithList(
@@ -240,7 +229,7 @@ class CameraScreenState extends State<CameraScreen> {
     qaHistory = [];
     lastImageUrl = null;
 
-    final Uint8List? imageBytes = await _cameraService.captureImage();
+    final Uint8List? imageBytes = await _cameraKey.currentState?.captureImage();
 
     // Check if this session is still active
     if (_cancelRequested || session != _sessionId) {
@@ -392,10 +381,9 @@ class CameraScreenState extends State<CameraScreen> {
         .map((e) => "Question: ${e['question']}\nAnswer: ${e['answer']}")
         .join("\n\n");
 
-    final String finalPrompt =
-        historyPrompt.isNotEmpty
-            ? "$historyPrompt\n\nNow answer this new question: $newPrompt"
-            : newPrompt;
+    final String finalPrompt = historyPrompt.isNotEmpty
+        ? "$historyPrompt\n\nNow answer this new question: $newPrompt"
+        : newPrompt;
 
     setState(() => spokenText = "Verarbeitung...");
     final String? result = await GeminiService.processImageWithPrompt(
@@ -450,10 +438,6 @@ class CameraScreenState extends State<CameraScreen> {
     setState(() => isProcessing = false);
   }
 
-  /// Unified audio helper
-  /// - [text]: optional TTS to speak
-  /// - [soundAsset]: optional sound to play
-  /// - [vibrationDuration]: vibration duration in ms
   Future<void> _playAudio({
     String? text,
     String? soundAsset,
@@ -492,9 +476,9 @@ class CameraScreenState extends State<CameraScreen> {
 
   @override
   void dispose() {
-    _cameraService.stopCamera();
     player.dispose();
     _sfxPlayer.dispose();
+    HardwareButtonService().dispose();
     super.dispose();
   }
 
@@ -523,12 +507,12 @@ class CameraScreenState extends State<CameraScreen> {
       backgroundColor: Colors.black,
       body: Stack(
         children: [
-          Positioned.fill(child: _cameraService.getCameraPreview()),
-
+          Positioned.fill(
+            child: CameraService(key: _cameraKey),
+          ),
           Positioned.fill(
             child: Container(color: Colors.black.withValues(alpha: 0.25)),
           ),
-
           Positioned(
             top: 0,
             left: 0,
@@ -592,7 +576,6 @@ class CameraScreenState extends State<CameraScreen> {
               ),
             ),
           ),
-
           Positioned(
             bottom: 0,
             left: 0,
@@ -677,20 +660,19 @@ class CameraScreenState extends State<CameraScreen> {
                                     ),
                                   ),
                                   style: ElevatedButton.styleFrom(
-                                    backgroundColor:
-                                        isProcessing
-                                            ? const Color.fromRGBO(
-                                              255,
-                                              185,
-                                              89,
-                                              100,
-                                            )
-                                            : const Color.fromRGBO(
-                                              255,
-                                              222,
-                                              89,
-                                              100,
-                                            ),
+                                    backgroundColor: isProcessing
+                                        ? const Color.fromRGBO(
+                                            255,
+                                            185,
+                                            89,
+                                            100,
+                                          )
+                                        : const Color.fromRGBO(
+                                            255,
+                                            222,
+                                            89,
+                                            100,
+                                          ),
                                     padding: const EdgeInsets.symmetric(
                                       vertical: 16,
                                       horizontal: 20,
